@@ -1,0 +1,1567 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ThumbLab — YouTube Thumbnail Preview Console</title>
+<meta name="description" content="A realistic YouTube home/search feed with your thumbnail variants and live competitor uploads dropped in, powered by real YouTube data through a private proxy, across desktop, tablet, and mobile, in light or dark mode.">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Roboto:wght@400;500;700&display=swap');
+
+  /* ---- ThumbLab console tokens ----
+     The console chrome (this UI) and the simulated YouTube screen inside it
+     are two independent worlds with two independent theme switches — the
+     console defaults to dark, the simulated screen defaults to dark too,
+     but either can be flipped to light on its own, because the whole point
+     of the screen is faithfulness to YouTube's own real palette regardless
+     of what the console around it is doing. */
+  :root{
+    --void:#121317;
+    --surface:#1a1c22;
+    --surface-raised:#22252c;
+    --surface-raised-2:#2a2d35;
+    --border:#2e313a;
+    --text:#edeef1;
+    --text-dim:#9498a3;
+    --text-faint:#5d616d;
+    --accent:#f2a93b;
+    --accent-ink:#241a06;
+    --accent-dim:#c9862a;
+    --danger:#e5484d;
+    --radius-sm:4px;
+    --radius-md:8px;
+    --font-display:'Inter','Inter UI',system-ui,sans-serif;
+    --font-mono:'IBM Plex Mono',ui-monospace,'SFMono-Regular',Menlo,monospace;
+  }
+
+  /* Light console chrome — same token set, swapped values, set on <body>
+     via JS so body's own background:var(--void) picks it up too. Only the
+     console chrome; the simulated YouTube screen has its own switch below
+     and never reads these tokens. */
+  body[data-ui-theme="light"]{
+    --void:#f3f4f6;
+    --surface:#ffffff;
+    --surface-raised:#f7f8fa;
+    --surface-raised-2:#edeef2;
+    --border:#dde0e6;
+    --text:#1a1c22;
+    --text-dim:#5d616d;
+    --text-faint:#9498a3;
+    --accent-ink:#241a06;
+  }
+
+  *,*::before,*::after{box-sizing:border-box;}
+  @media (prefers-reduced-motion: reduce){
+    *,*::before,*::after{animation:none !important;transition:none !important;}
+  }
+  /* Authoritative hide toggle: several components below set their own
+     `display` (flex, block via the img reset, etc.), and a normal author
+     rule always wins over the UA's [hidden]{display:none} regardless of
+     specificity — so the native `hidden` attribute alone can't be trusted
+     here. JS toggles this class instead wherever that conflict applies. */
+  .is-hidden{display:none !important;}
+
+  body{
+    margin:0;
+    background:var(--void);
+    color:var(--text);
+    font-family:var(--font-display);
+    -webkit-font-smoothing:antialiased;
+  }
+
+  a{color:inherit;}
+  img{max-width:100%;display:block;}
+  button{font-family:inherit;}
+
+  .lab{
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+  }
+
+  /* ---------- header ---------- */
+  .lab__header{
+    display:flex;
+    align-items:baseline;
+    gap:.65rem;
+    padding:1.1rem 1.5rem;
+    border-bottom:1px solid var(--border);
+    background:var(--surface);
+  }
+  .lab__brand{display:flex;align-items:center;gap:.5rem;}
+  .lab__brand-mark{
+    width:1.6rem;height:1.6rem;
+    border-radius:50%;
+    background:conic-gradient(from 220deg, var(--accent), var(--accent-dim) 40%, var(--surface-raised-2) 41%, var(--surface-raised-2));
+    display:inline-block;
+    flex-shrink:0;
+  }
+  .lab__brand-name{
+    font-weight:800;
+    font-size:1.05rem;
+    letter-spacing:.06em;
+  }
+  .lab__tagline{
+    font-family:var(--font-mono);
+    font-size:.72rem;
+    color:var(--text-faint);
+    letter-spacing:.03em;
+    text-transform:uppercase;
+  }
+
+  /* ---------- body layout ---------- */
+  .lab__body{
+    flex:1;
+    display:grid;
+    grid-template-columns:19rem 1fr;
+    min-height:0;
+  }
+  @media (max-width:900px){
+    .lab__body{grid-template-columns:1fr;}
+  }
+
+  /* ---------- rail / control console ---------- */
+  .rail{
+    background:var(--surface);
+    border-right:1px solid var(--border);
+    padding:1.25rem 1.1rem 2rem;
+    display:flex;
+    flex-direction:column;
+    gap:1.35rem;
+    overflow-y:auto;
+  }
+  .panel{display:flex;flex-direction:column;gap:.55rem;}
+  .panel__label{
+    margin:0;
+    font-family:var(--font-mono);
+    font-size:.68rem;
+    text-transform:uppercase;
+    letter-spacing:.09em;
+    color:var(--text-dim);
+    font-weight:600;
+  }
+  .panel__label-optional{
+    text-transform:none;
+    letter-spacing:0;
+    font-weight:500;
+    color:var(--text-faint);
+  }
+
+  .field{
+    width:100%;
+    background:var(--surface-raised);
+    border:1px solid var(--border);
+    color:var(--text);
+    border-radius:var(--radius-sm);
+    padding:.55rem .65rem;
+    font-family:var(--font-display);
+    font-size:.88rem;
+  }
+  .field::placeholder{color:var(--text-faint);}
+  .field:focus-visible{outline:2px solid var(--accent);outline-offset:1px;}
+  .field--sm{font-size:.8rem;padding:.5rem .55rem;}
+
+  .segmented{
+    display:flex;
+    background:var(--surface-raised);
+    border:1px solid var(--border);
+    border-radius:var(--radius-sm);
+    padding:2px;
+    gap:2px;
+  }
+  .segmented__btn{
+    flex:1;
+    background:transparent;
+    border:none;
+    color:var(--text-dim);
+    padding:.45rem .4rem;
+    font-size:.76rem;
+    font-weight:600;
+    border-radius:3px;
+    cursor:pointer;
+  }
+  .segmented__btn:hover{color:var(--text);}
+  .segmented__btn.is-active{background:var(--accent);color:var(--accent-ink);}
+  .segmented__btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+
+  .variants{display:flex;flex-direction:column;gap:.75rem;}
+  .variant__row{display:flex;gap:.55rem;align-items:stretch;}
+  .variant__title{flex:1;min-width:0;}
+  .variant__channel{margin-top:.4rem;}
+
+  .thumb-slot{
+    position:relative;
+    width:5rem;flex-shrink:0;
+    aspect-ratio:16/10;
+    border-radius:var(--radius-sm);
+    border:1.5px dashed var(--border);
+    background:var(--surface-raised);
+    overflow:hidden;
+  }
+  .thumb-slot__label{
+    position:absolute;inset:0;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:.15rem;
+    cursor:pointer;
+    color:var(--text-faint);
+  }
+  .thumb-slot__plus{font-size:1.1rem;font-weight:600;line-height:1;}
+  .thumb-slot__text{font-family:var(--font-mono);font-size:.62rem;letter-spacing:.05em;text-transform:uppercase;}
+  .thumb-slot__input:focus-visible + .thumb-slot__label{outline:2px solid var(--accent);outline-offset:-2px;}
+  .thumb-slot__img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+  .thumb-slot__remove{
+    position:absolute;top:3px;right:3px;
+    width:1.15rem;height:1.15rem;
+    border-radius:50%;
+    border:none;
+    background:rgba(0,0,0,.65);
+    color:#fff;
+    font-size:.7rem;
+    line-height:1;
+    cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .thumb-slot__remove:focus-visible{outline:2px solid var(--accent);}
+
+  .avatar-slot{
+    position:relative;
+    width:3.4rem;height:3.4rem;
+    border-radius:50%;
+    border:1.5px dashed var(--border);
+    background:var(--surface-raised);
+    overflow:hidden;
+  }
+  .avatar-slot__label{
+    position:absolute;inset:0;
+    display:flex;align-items:center;justify-content:center;
+    cursor:pointer;color:var(--text-faint);font-size:1rem;font-weight:600;
+  }
+  .avatar-slot__img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+  .avatar-slot__remove{
+    position:absolute;bottom:-1px;right:-1px;
+    width:1.05rem;height:1.05rem;border-radius:50%;border:none;
+    background:rgba(0,0,0,.65);color:#fff;font-size:.65rem;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+  }
+
+  .btn{
+    width:100%;
+    background:var(--surface-raised);
+    border:1px solid var(--border);
+    color:var(--text);
+    border-radius:var(--radius-sm);
+    padding:.6rem .7rem;
+    font-size:.82rem;
+    font-weight:600;
+    cursor:pointer;
+  }
+  .btn:hover{background:var(--surface-raised-2);}
+  .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  .btn:disabled{opacity:.5;cursor:default;}
+  .btn--primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);}
+  .btn--primary:hover{background:var(--accent-dim);border-color:var(--accent-dim);}
+  .btn--compact{width:auto;flex-shrink:0;padding:.55rem .9rem;}
+  .panel--actions{gap:.5rem;flex-direction:row;}
+  .panel--actions .btn{flex:1;}
+
+  .rail__note{
+    margin:.25rem 0 0;
+    font-family:var(--font-mono);
+    font-size:.66rem;
+    line-height:1.5;
+    color:var(--text-faint);
+  }
+  .rail__hint{
+    margin:0;
+    font-family:var(--font-mono);
+    font-size:.64rem;
+    line-height:1.55;
+    color:var(--text-faint);
+  }
+  .rail__hint a{color:var(--accent);text-decoration:underline;}
+  .rail__hint[data-tone="error"]{color:var(--danger);}
+  .rail__hint[data-tone="ok"]{color:var(--accent);}
+  .rail__hint[data-tone="info"]{color:var(--text-dim);}
+  .rail__hint--tight{margin-top:.35rem;min-height:.9em;}
+  .rail__status{
+    margin:0;
+    font-family:var(--font-mono);
+    font-size:.66rem;
+    line-height:1.5;
+    color:var(--text-dim);
+  }
+  .rail__status[data-tone="error"]{color:var(--danger);}
+  .rail__status[data-tone="ok"]{color:var(--accent);}
+
+  /* ---------- bench / device stage ---------- */
+  .bench{
+    background:
+      radial-gradient(circle at 50% 0%, rgba(242,169,59,.06), transparent 55%),
+      var(--void);
+    display:flex;
+    align-items:flex-start;
+    justify-content:center;
+    padding:2rem 1.25rem 3rem;
+    overflow:auto;
+  }
+
+  .device{width:min(1120px,100%);transition:width .18s ease;}
+  .device[data-device="tablet"]{width:46rem;max-width:100%;}
+  .device[data-device="mobile"]{width:24.4rem;max-width:100%;}
+
+  .device__bezel{
+    display:flex;align-items:center;gap:.5rem;
+    background:var(--surface-raised);
+    border:1px solid var(--border);
+    border-bottom:none;
+    border-radius:10px 10px 0 0;
+    padding:.5rem .75rem;
+  }
+  .device[data-device="desktop"] .device__bezel{padding:.55rem .9rem;}
+  .device__dot{width:.5rem;height:.5rem;border-radius:50%;background:var(--surface-raised-2);border:1px solid var(--border);}
+  .device__url{
+    margin-left:.4rem;
+    flex:1;
+    font-family:var(--font-mono);
+    font-size:.68rem;
+    color:var(--text-dim);
+    background:var(--void);
+    border:1px solid var(--border);
+    border-radius:999px;
+    padding:.3rem .7rem;
+  }
+  .device[data-device="tablet"] .device__bezel,
+  .device[data-device="mobile"] .device__bezel{
+    justify-content:center;
+    border-radius:1.3rem 1.3rem 0 0;
+    padding:.65rem;
+  }
+  .device__notch{width:2.6rem;height:.4rem;border-radius:999px;background:var(--void);border:1px solid var(--border);}
+
+  /* ---------- simulated YouTube screen ----------
+     Colour tokens live on .device__screen so both light and dark YouTube
+     themes are real, explicit palettes — not a media-query guess — and
+     switch instantly via the data-yt-theme attribute set from the rail. */
+  .device__screen{
+    --yt-bg:#fff;
+    --yt-bg-elevated:#fff;
+    --yt-text:#0f0f0f;
+    --yt-text-secondary:#606060;
+    --yt-border:#e5e5e5;
+    --yt-chip-bg:#f2f2f2;
+    --yt-chip-text:#0f0f0f;
+    --yt-chip-active-bg:#0f0f0f;
+    --yt-chip-active-text:#fff;
+    --yt-search-bg:#fff;
+    --yt-search-border:#ccc;
+    --yt-search-btn-bg:#f8f8f8;
+    --yt-mic-bg:#f8f8f8;
+    --yt-placeholder:#8a8a8a;
+    background:var(--yt-bg);
+    border:1px solid var(--border);
+    border-top:none;
+    border-radius:0 0 10px 10px;
+    height:44rem;
+    overflow-y:auto;
+    overflow-x:hidden;
+  }
+  .device__screen[data-yt-theme="dark"]{
+    --yt-bg:#0f0f0f;
+    --yt-bg-elevated:#0f0f0f;
+    --yt-text:#f1f1f1;
+    --yt-text-secondary:#aaaaaa;
+    --yt-border:#303030;
+    --yt-chip-bg:#272727;
+    --yt-chip-text:#f1f1f1;
+    --yt-chip-active-bg:#f1f1f1;
+    --yt-chip-active-text:#0f0f0f;
+    --yt-search-bg:#121212;
+    --yt-search-border:#303030;
+    --yt-search-btn-bg:#222;
+    --yt-mic-bg:#181818;
+    --yt-placeholder:#888;
+  }
+  .device[data-device="tablet"] .device__screen,
+  .device[data-device="mobile"] .device__screen{border-radius:0 0 1.3rem 1.3rem;}
+  .device[data-device="mobile"] .device__screen{height:48rem;}
+
+  .yt{font-family:'Roboto','Segoe UI',Arial,sans-serif;color:var(--yt-text);}
+
+  .yt-top{
+    display:flex;align-items:center;gap:1rem;
+    padding:.65rem 1.1rem;
+    border-bottom:1px solid var(--yt-border);
+    position:sticky;top:0;background:var(--yt-bg-elevated);z-index:2;
+  }
+  .yt-top__left{display:flex;align-items:center;gap:.9rem;flex-shrink:0;}
+  .yt-top__icon-btn{background:none;border:none;padding:.2rem;color:var(--yt-text);cursor:pointer;display:flex;}
+  .yt-top__logo{display:flex;align-items:center;gap:.3rem;font-weight:700;font-size:1.15rem;letter-spacing:-.02em;}
+  .yt-top__logo-badge{
+    width:1.55rem;height:1.1rem;background:#ff0000;border-radius:5px;
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  }
+  .yt-top__logo-badge svg{width:.55rem;height:.55rem;fill:#fff;}
+  .yt-top__search{
+    flex:1;min-width:0;display:flex;max-width:38rem;margin:0 auto;
+  }
+  .yt-top__search-box{
+    flex:1;min-width:0;display:flex;align-items:center;
+    border:1px solid var(--yt-search-border);border-right:none;
+    background:var(--yt-search-bg);
+    border-radius:18px 0 0 18px;
+    padding:0 .9rem;height:2.15rem;
+    font-size:.85rem;color:var(--yt-text);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+  }
+  .yt-top__search-box[data-empty="true"]{color:var(--yt-placeholder);}
+  .yt-top__search-btn{
+    width:3.4rem;display:flex;align-items:center;justify-content:center;
+    background:var(--yt-search-btn-bg);border:1px solid var(--yt-search-border);border-radius:0 18px 18px 0;flex-shrink:0;
+    color:var(--yt-text-secondary);
+  }
+  .yt-top__search-btn svg{width:.95rem;height:.95rem;}
+  .yt-top__mic{
+    width:2.15rem;height:2.15rem;border-radius:50%;background:var(--yt-mic-bg);
+    display:flex;align-items:center;justify-content:center;margin-left:.7rem;flex-shrink:0;
+    color:var(--yt-text-secondary);
+  }
+  .yt-top__mic svg{width:.9rem;height:.9rem;}
+  .yt-top__right{margin-left:auto;flex-shrink:0;}
+  .yt-avatar{
+    width:1.9rem;height:1.9rem;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    font-size:.68rem;font-weight:700;color:#fff;overflow:hidden;flex-shrink:0;background-size:cover;background-position:center;
+  }
+  .yt-avatar img{width:100%;height:100%;object-fit:cover;}
+
+  .yt-chips{
+    display:flex;gap:.55rem;padding:.7rem 1.1rem;overflow-x:auto;
+    border-bottom:1px solid var(--yt-border);
+  }
+  .yt-chip{
+    flex-shrink:0;font-size:.8rem;padding:.35rem .85rem;border-radius:8px;
+    background:var(--yt-chip-bg);color:var(--yt-chip-text);white-space:nowrap;
+    border:none;cursor:pointer;font-family:inherit;
+  }
+  .yt-chip:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  .yt-chip:disabled{opacity:.5;cursor:default;}
+  .yt-chip[data-active="true"]{background:var(--yt-chip-active-bg);color:var(--yt-chip-active-text);}
+
+  .yt-search-meta{padding:.85rem 1.1rem 0;font-size:.82rem;color:var(--yt-text-secondary);}
+
+  .yt-content{padding:1rem 1.1rem 1.5rem;}
+  .yt-empty{padding:3.5rem 1.5rem;text-align:center;color:var(--yt-text-secondary);font-size:.9rem;line-height:1.7;max-width:26rem;margin:0 auto;}
+
+  .yt-grid{display:grid;gap:1.4rem 1rem;}
+  .device__screen[data-device="desktop"] .yt-grid{grid-template-columns:repeat(4,1fr);}
+  .device__screen[data-device="tablet"] .yt-grid{grid-template-columns:repeat(2,1fr);}
+  .device__screen[data-device="mobile"] .yt-grid{grid-template-columns:1fr;gap:1.25rem;}
+
+  .yt-card{cursor:default;}
+  .yt-card__thumb-wrap{position:relative;width:100%;aspect-ratio:16/9;border-radius:10px;overflow:hidden;background:#000;}
+  .device__screen[data-device="mobile"] .yt-card__thumb-wrap{border-radius:0;}
+  .yt-card__thumb{width:100%;height:100%;object-fit:cover;}
+  .yt-card__thumb-fill{width:100%;height:100%;display:flex;align-items:center;justify-content:center;position:relative;}
+  .yt-card__thumb-fill span{font-size:2.6rem;font-weight:800;color:rgba(255,255,255,.5);font-family:var(--font-display);}
+  .yt-card__duration{
+    position:absolute;bottom:.35rem;right:.35rem;
+    background:rgba(0,0,0,.8);color:#fff;font-size:.68rem;font-weight:600;
+    padding:.05rem .3rem;border-radius:3px;
+  }
+  .yt-card__meta{display:flex;gap:.6rem;margin-top:.6rem;}
+  .device__screen[data-device="mobile"] .yt-card__meta{padding:0 1.1rem .2rem;margin-top:.7rem;}
+  .yt-card__text{min-width:0;}
+  .yt-card__title{
+    font-size:.92rem;font-weight:500;line-height:1.35;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  }
+  .yt-card__channel,.yt-card__stats{font-size:.8rem;color:var(--yt-text-secondary);line-height:1.5;}
+
+  .yt-list{display:flex;flex-direction:column;gap:1.5rem;}
+  .yt-row{display:flex;gap:1rem;}
+  .device__screen[data-device="mobile"] .yt-row{flex-direction:column;}
+  .yt-row__thumb-wrap{position:relative;flex-shrink:0;width:23rem;max-width:46%;aspect-ratio:16/9;border-radius:10px;overflow:hidden;background:#000;}
+  .device__screen[data-device="mobile"] .yt-row__thumb-wrap{width:100%;max-width:100%;border-radius:0;}
+  .yt-row__meta{min-width:0;flex:1;}
+  .device__screen[data-device="mobile"] .yt-row__meta{padding:0 1.1rem;}
+  .yt-row__title{font-size:1.05rem;font-weight:500;line-height:1.4;margin-bottom:.3rem;}
+  .yt-row__stats{font-size:.82rem;color:var(--yt-text-secondary);margin-bottom:.55rem;}
+  .yt-row__channel{display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem;}
+  .yt-row__channel-name{font-size:.82rem;color:var(--yt-text-secondary);}
+  .yt-row__desc{font-size:.85rem;color:var(--yt-text-secondary);line-height:1.5;}
+
+  @media (max-width:640px){
+    .rail{border-right:none;border-bottom:1px solid var(--border);}
+  }
+</style>
+</head>
+<body>
+
+
+<div class="lab">
+  <header class="lab__header">
+    <div class="lab__brand">
+      <span class="lab__brand-mark" aria-hidden="true"></span>
+      <span class="lab__brand-name">ThumbLab</span>
+    </div>
+    <span class="lab__tagline">thumbnail preview console</span>
+  </header>
+
+  <div class="lab__body">
+    <aside class="rail">
+      <section class="panel">
+        <h2 class="panel__label">Your thumbnails · up to 3</h2>
+        <div class="variants" id="thumbSlots"></div>
+      </section>
+
+      <section class="panel">
+        <h2 class="panel__label">Channel avatar</h2>
+        <div id="avatarSlot"></div>
+      </section>
+
+      <section class="panel">
+        <h2 class="panel__label">Channel name</h2>
+        <input id="channelInput" class="field" type="text" maxlength="40" value="ThumbLab">
+      </section>
+
+      <section class="panel">
+        <h2 class="panel__label">Device</h2>
+        <div class="segmented" id="deviceSeg" role="radiogroup" aria-label="Device">
+          <button type="button" class="segmented__btn is-active" data-value="desktop" role="radio" aria-checked="true">Desktop</button>
+          <button type="button" class="segmented__btn" data-value="tablet" role="radio" aria-checked="false">Tablet</button>
+          <button type="button" class="segmented__btn" data-value="mobile" role="radio" aria-checked="false">Mobile</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2 class="panel__label">Preview</h2>
+        <div class="segmented" id="previewSeg" role="radiogroup" aria-label="Preview surface">
+          <button type="button" class="segmented__btn is-active" data-value="home" role="radio" aria-checked="true">Home page</button>
+          <button type="button" class="segmented__btn" data-value="search" role="radio" aria-checked="false">Search results</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2 class="panel__label">Interface theme</h2>
+        <div class="segmented" id="uiThemeSeg" role="radiogroup" aria-label="Interface theme">
+          <button type="button" class="segmented__btn" data-value="light" role="radio" aria-checked="false">Light</button>
+          <button type="button" class="segmented__btn is-active" data-value="dark" role="radio" aria-checked="true">Dark</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2 class="panel__label">YouTube theme</h2>
+        <div class="segmented" id="themeSeg" role="radiogroup" aria-label="YouTube theme">
+          <button type="button" class="segmented__btn" data-value="light" role="radio" aria-checked="false">Light</button>
+          <button type="button" class="segmented__btn is-active" data-value="dark" role="radio" aria-checked="true">Dark</button>
+        </div>
+      </section>
+
+      <section class="panel is-hidden" id="searchQueryPanel">
+        <h2 class="panel__label">Search query</h2>
+        <div class="variant__row">
+          <input id="searchInput" class="field" type="text" maxlength="60" value="video editing tips">
+          <button type="button" class="btn btn--compact" id="searchGoBtn">Go</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2 class="panel__label">Competitor videos · up to 3 <span class="panel__label-optional">(optional)</span></h2>
+        <p class="rail__hint" style="margin-bottom:.6rem;">Pulled automatically from YouTube — each channel's latest upload.</p>
+        <div class="variants" id="competitorSlots"></div>
+      </section>
+
+      <section class="panel panel--actions">
+        <button type="button" class="btn btn--primary" id="refreshBtn">New videos</button>
+        <button type="button" class="btn" id="shuffleBtn">Shuffle order</button>
+      </section>
+      <p class="rail__status" id="statusLine" aria-live="polite"></p>
+
+      <p class="rail__note">Everything renders locally in your browser. Nothing you upload is sent anywhere. Live video requests go through this site's private proxy — no API key is ever visible to you or anyone else viewing this page.</p>
+    </aside>
+
+    <main class="bench">
+      <div class="device" id="device" data-device="desktop">
+        <div class="device__bezel" id="deviceBezel"></div>
+        <div class="device__screen" id="screen" data-device="desktop" data-yt-theme="dark">
+          <div class="yt">
+            <div class="yt-top" id="ytTop"></div>
+            <div class="yt-chips" id="ytChips"></div>
+            <div class="yt-search-meta is-hidden" id="ytSearchMeta"></div>
+            <div class="yt-content" id="ytContent"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // Every visitor's live-data request routes through this Cloudflare
+  // Workers proxy (see dist/cloudflare-worker.js) — the real YouTube API
+  // key lives only in the Worker's encrypted secret storage, never in this
+  // page's source. There is no visitor-facing key field at all. If this is
+  // blank, ThumbLab just falls back to generated placeholder videos.
+  var PROXY_URL = 'https://thumblab-proxy.marcothepolo.workers.dev';
+
+  var ICON = {
+    hamburger: '<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M3 6h18v2H3zM3 11h18v2H3zM3 16h18v2H3z"/></svg>',
+    play: '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>',
+    search: '<svg viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" d="M10.5 3a7.5 7.5 0 1 0 4.76 13.3l5.2 5.2 1.4-1.4-5.2-5.2A7.5 7.5 0 0 0 10.5 3z"/></svg>',
+    mic: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>'
+  };
+
+  // Each topic carries a coarse category so both the generated-placeholder
+  // pool and the live YouTube category chips can filter by the same taxonomy.
+  var TOPICS = [
+    {name:'Home Workouts', cat:'howto'}, {name:'Budget Travel', cat:'entertainment'},
+    {name:'Sourdough Baking', cat:'howto'}, {name:'JavaScript', cat:'tech'},
+    {name:'Guitar Chords', cat:'music'}, {name:'Minimalist Living', cat:'howto'},
+    {name:'Street Photography', cat:'howto'}, {name:'Personal Finance', cat:'education'},
+    {name:'Houseplants', cat:'howto'}, {name:'Retro Gaming', cat:'gaming'},
+    {name:'Speedrunning', cat:'gaming'}, {name:'Watercolor Painting', cat:'howto'},
+    {name:'Espresso', cat:'howto'}, {name:'Urban Cycling', cat:'sports'},
+    {name:'Chess Openings', cat:'education'}, {name:'Language Learning', cat:'education'},
+    {name:'3D Printing', cat:'tech'}, {name:'Vintage Cameras', cat:'howto'},
+    {name:'Trail Running', cat:'sports'}, {name:'Analog Synths', cat:'music'},
+    {name:'Freelance Writing', cat:'education'}, {name:'Home Baking', cat:'howto'},
+    {name:'Digital Art', cat:'tech'}, {name:'Camping Gear', cat:'howto'},
+    {name:'Stand-up Comedy', cat:'comedy'}, {name:'Local News Roundups', cat:'news'}
+  ];
+
+  var HOOKS = [
+    function(t){return 'I Tried ' + t + ' for 30 Days';},
+    function(t){return 'The Only ' + t + ' Guide You Need';},
+    function(t){return 'Why Everyone Is Wrong About ' + t;},
+    function(t){return t + ': Mistakes Beginners Make';},
+    function(t){return '10 ' + t + ' Tips Nobody Tells You';},
+    function(t){return 'I Wish I Knew This About ' + t + ' Sooner';},
+    function(t){return 'Ranking Every ' + t + ' Method';},
+    function(t){return t + ' Explained in 5 Minutes';},
+    function(t){return 'This Changed How I Think About ' + t;},
+    function(t){return 'Is ' + t + ' Still Worth It?';},
+    function(t){return 'My Honest ' + t + ' Setup';},
+    function(t){return t + ' for Complete Beginners';}
+  ];
+
+  var CHANNEL_A = ['North','Craft','Field','Bright','Loop','Basecamp','Quiet','Open','Longform','Weekend'];
+  var CHANNEL_B = ['Lab','Works','Journal','House','Notes','Weekly','Films','Made','Studio','Desk'];
+  var PERSON_NAMES = ['Mara Voss','Devon Cole','Priya Nandi','Theo Marsh','Ines Aldana','Kenji Ito','Nora Byrne','Sam Okafor','Lena Bright','Alex Reyes'];
+
+  var AGES = ['3 hours ago','7 hours ago','yesterday','2 days ago','5 days ago','1 week ago','2 weeks ago','3 weeks ago','1 month ago','2 months ago','4 months ago','8 months ago','1 year ago'];
+
+  var DESCRIPTIONS = [
+    'In this one I walk through my whole process, step by step, so you can copy exactly what worked.',
+    'A full breakdown of what I got wrong the first time, and how I fixed it.',
+    'Everything I learned condensed into one video, no filler.',
+    'A closer look at the details most people skip over.',
+    'The short version: here is what actually made the difference.'
+  ];
+
+  var HUES = [12,28,45,160,190,205,225,260,300,335];
+
+  var HOME_CATEGORIES = [
+    {key:'all', label:'All', apiId:null},
+    {key:'music', label:'Music', apiId:'10'},
+    {key:'gaming', label:'Gaming', apiId:'20'},
+    {key:'sports', label:'Sports', apiId:'17'},
+    {key:'education', label:'Education', apiId:'27'},
+    {key:'tech', label:'Science & Tech', apiId:'28'},
+    {key:'howto', label:'Howto & Style', apiId:'26'},
+    {key:'entertainment', label:'Entertainment', apiId:'24'},
+    {key:'comedy', label:'Comedy', apiId:'23'},
+    {key:'news', label:'News & Politics', apiId:'25'}
+  ];
+  var SEARCH_TABS = [
+    {key:'all', label:'All'},
+    {key:'videos', label:'Videos'},
+    {key:'shorts', label:'Shorts'},
+    {key:'live', label:'Live'},
+    {key:'playlists', label:'Playlists'}
+  ];
+
+  function rand(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+  function randInt(min,max){ return Math.floor(Math.random()*(max-min+1))+min; }
+
+  function formatViews(n){
+    if (n >= 1000000) return (n/1000000).toFixed(n>=10000000?0:1) + 'M views';
+    if (n >= 1000){
+      var k = Math.round(n/1000);
+      if (k >= 1000) return (n/1000000).toFixed(1) + 'M views'; // rounds up into M territory
+      return k + 'K views';
+    }
+    return n + ' views';
+  }
+  function formatDuration(){
+    if (Math.random() < 0.12){
+      return randInt(1,2) + ':' + String(randInt(0,59)).padStart(2,'0') + ':' + String(randInt(0,59)).padStart(2,'0');
+    }
+    return randInt(1,42) + ':' + String(randInt(0,59)).padStart(2,'0');
+  }
+  function shortDuration(){ return '0:' + String(randInt(8,59)).padStart(2,'0'); }
+  function initialsOf(name){
+    var parts = name.trim().split(/\s+/);
+    if (!parts[0]) return '?';
+    if (parts.length === 1) return parts[0].slice(0,2).toUpperCase();
+    return (parts[0][0] + parts[parts.length-1][0]).toUpperCase();
+  }
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+  function shuffle(arr){
+    for (var i = arr.length - 1; i > 0; i--){
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+    }
+    return arr;
+  }
+  function uniq(arr){ return arr.filter(function(v,i){ return arr.indexOf(v) === i; }); }
+  function statsLine(views, age){
+    if (!views) return age || '';
+    if (!age) return views;
+    return views + ' &middot; ' + age;
+  }
+  function hashColor(str){
+    var h = 0;
+    for (var i=0;i<String(str).length;i++){ h = (h*31 + str.charCodeAt(i)) >>> 0; }
+    return 'hsl(' + (h%360) + ',55%,38%)';
+  }
+
+  function generateChannelName(){
+    if (Math.random() < 0.45) return rand(PERSON_NAMES);
+    return rand(CHANNEL_A) + ' ' + rand(CHANNEL_B);
+  }
+
+  var fillerSeq = 0;
+  function generateFillerVideo(topicsPool){
+    var pool = (topicsPool && topicsPool.length) ? topicsPool : TOPICS;
+    var topic = rand(pool);
+    var hook = rand(HOOKS);
+    var hue = rand(HUES);
+    var hue2 = (hue + randInt(35,75)) % 360;
+    var isShort = Math.random() < 0.16;
+    fillerSeq++;
+    return {
+      id: 'f' + fillerSeq + '-' + Math.random().toString(36).slice(2,7),
+      title: hook(topic.name),
+      channel: generateChannelName(),
+      views: formatViews(randInt(600, 4300000)),
+      age: rand(AGES),
+      duration: isShort ? shortDuration() : formatDuration(),
+      isShort: isShort,
+      desc: rand(DESCRIPTIONS),
+      grad: 'linear-gradient(135deg,hsl(' + hue + ',62%,42%),hsl(' + hue2 + ',62%,30%))',
+      letter: topic.name[0],
+      avatarColor: 'hsl(' + hue + ',55%,38%)',
+      initials: initialsOf(generateChannelName())
+    };
+  }
+
+  var FILLER_COUNT = 24;
+
+  function regenerateSyntheticPool(categoryKey){
+    var pickPool = TOPICS;
+    if (categoryKey && categoryKey !== 'all'){
+      var filtered = TOPICS.filter(function(t){ return t.cat === categoryKey; });
+      if (filtered.length) pickPool = filtered;
+    }
+    var pool = [];
+    for (var i = 0; i < FILLER_COUNT; i++) pool.push({ type:'filler', data: generateFillerVideo(pickPool) });
+    return pool;
+  }
+
+  function syntheticForSearch(tabKey){
+    if (tabKey === 'live' || tabKey === 'playlists') return [];
+    var rawCount = tabKey === 'shorts' ? 100 : FILLER_COUNT;
+    var raw = [];
+    for (var i = 0; i < rawCount; i++) raw.push(generateFillerVideo(TOPICS));
+    if (tabKey === 'shorts') raw = raw.filter(function(v){ return v.isShort; });
+    raw = raw.slice(0, FILLER_COUNT);
+    return raw.map(function(v){ return { type:'filler', data:v }; });
+  }
+
+  // ---------- live YouTube Data API v3 ----------
+  // Every request is routed through PROXY_URL (a Cloudflare Worker — see
+  // dist/cloudflare-worker.js). The real API key lives only in the
+  // Worker's encrypted secret storage; it never ships in this page's
+  // source and is never visible to a visitor. There is deliberately no
+  // bring-your-own-key option — visitors just see real data, with nothing
+  // to configure and nothing of theirs exposed.
+  // videos.list (trending/category) costs 1 quota unit; search.list costs
+  // 100 — cheap either way against the default 10,000/day free tier, but
+  // search is the one worth being sparing with (only fires on chip click,
+  // Enter, or "New videos").
+  function ytFetch(path, params, transport){
+    var base = transport.proxyUrl.replace(/\/+$/,'') + '/';
+    var query = Object.assign({}, params);
+    var url = base + path + '?' + new URLSearchParams(query).toString();
+    return fetch(url).then(function(res){
+      return res.json().catch(function(){ return {}; }).then(function(data){
+        if (!res.ok || data.error){
+          var msg = (data.error && data.error.message) || ('YouTube API error (HTTP ' + res.status + ')');
+          throw new Error(msg);
+        }
+        return data;
+      });
+    });
+  }
+  function pickThumb(thumbs){
+    if (!thumbs) return '';
+    return ((thumbs.medium || thumbs.high || thumbs.default || {})).url || '';
+  }
+  function timeAgo(iso){
+    var then = new Date(iso).getTime();
+    if (isNaN(then)) return '';
+    var diffSec = Math.max(0, Math.floor((Date.now() - then) / 1000));
+    var units = [['year',31536000],['month',2592000],['week',604800],['day',86400],['hour',3600],['minute',60]];
+    for (var i = 0; i < units.length; i++){
+      var n = Math.floor(diffSec / units[i][1]);
+      if (n >= 1) return n + ' ' + units[i][0] + (n > 1 ? 's' : '') + ' ago';
+    }
+    return 'just now';
+  }
+  function parseISODuration(iso){
+    var m = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso || '');
+    if (!m) return '';
+    var h = parseInt(m[1] || '0', 10), mi = parseInt(m[2] || '0', 10), s = parseInt(m[3] || '0', 10);
+    if (h > 0) return h + ':' + String(mi).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+    return mi + ':' + String(s).padStart(2,'0');
+  }
+  function fetchChannelAvatars(transport, ids){
+    ids = uniq(ids.filter(Boolean));
+    if (!ids.length) return Promise.resolve({});
+    return ytFetch('channels', { part:'snippet', id: ids.slice(0,50).join(',') }, transport)
+      .then(function(data){
+        var map = {};
+        (data.items || []).forEach(function(it){
+          var thumbs = it.snippet && it.snippet.thumbnails;
+          map[it.id] = thumbs && (thumbs.default || thumbs.medium || {}).url;
+        });
+        return map;
+      })
+      .catch(function(){ return {}; });
+  }
+  function fetchHomeVideos(transport, categoryApiId){
+    var params = { part:'snippet,statistics,contentDetails', chart:'mostPopular', regionCode:'US', maxResults:'24' };
+    if (categoryApiId) params.videoCategoryId = categoryApiId;
+    return ytFetch('videos', params, transport).then(function(data){
+      var items = data.items || [];
+      if (!items.length) throw new Error('No trending videos returned for this category');
+      var channelIds = items.map(function(it){ return it.snippet.channelId; });
+      return fetchChannelAvatars(transport, channelIds).then(function(avatarMap){
+        return items.map(function(it){
+          return {
+            title: it.snippet.title,
+            channel: it.snippet.channelTitle,
+            views: formatViews(parseInt((it.statistics && it.statistics.viewCount) || '0', 10)),
+            age: timeAgo(it.snippet.publishedAt),
+            duration: parseISODuration(it.contentDetails && it.contentDetails.duration),
+            thumbUrl: pickThumb(it.snippet.thumbnails),
+            avatarUrl: avatarMap[it.snippet.channelId] || null,
+            desc: (it.snippet.description || '').slice(0,160)
+          };
+        });
+      });
+    });
+  }
+  function fetchSearchVideos(transport, query, tabKey){
+    var q = (query || '').trim() || 'trending';
+    if (tabKey === 'playlists'){
+      return ytFetch('search', { part:'snippet', q:q, type:'playlist', maxResults:'24' }, transport).then(function(data){
+        var items = data.items || [];
+        if (!items.length) throw new Error('No playlists found for "' + q + '"');
+        return items.map(function(it){
+          return {
+            title: it.snippet.title,
+            channel: it.snippet.channelTitle,
+            views: 'Playlist',
+            age: '',
+            duration: '',
+            thumbUrl: pickThumb(it.snippet.thumbnails),
+            avatarUrl: null,
+            desc: (it.snippet.description || '').slice(0,160)
+          };
+        });
+      });
+    }
+    var params = { part:'snippet', q:q, type:'video', maxResults:'24' };
+    if (tabKey === 'live') params.eventType = 'live';
+    if (tabKey === 'shorts') params.videoDuration = 'short';
+    return ytFetch('search', params, transport).then(function(data){
+      var items = (data.items || []).filter(function(it){ return it.id && it.id.videoId; });
+      if (!items.length) throw new Error('No results for "' + q + '"');
+      var videoIds = items.map(function(it){ return it.id.videoId; });
+      var channelIds = items.map(function(it){ return it.snippet.channelId; });
+      return Promise.all([
+        ytFetch('videos', { part:'statistics,contentDetails', id: videoIds.join(',') }, transport),
+        fetchChannelAvatars(transport, channelIds)
+      ]).then(function(res){
+        var statsMap = {};
+        (res[0].items || []).forEach(function(it){ statsMap[it.id] = it; });
+        var avatarMap = res[1];
+        var isLive = tabKey === 'live';
+        return items.map(function(it){
+          var stats = statsMap[it.id.videoId] || {};
+          return {
+            title: it.snippet.title,
+            channel: it.snippet.channelTitle,
+            views: isLive ? 'Live now' : formatViews(parseInt((stats.statistics && stats.statistics.viewCount) || '0', 10)),
+            age: isLive ? 'watching' : timeAgo(it.snippet.publishedAt),
+            duration: isLive ? '' : parseISODuration(stats.contentDetails && stats.contentDetails.duration),
+            thumbUrl: pickThumb(it.snippet.thumbnails),
+            avatarUrl: avatarMap[it.snippet.channelId] || null,
+            desc: (it.snippet.description || '').slice(0,160)
+          };
+        });
+      });
+    });
+  }
+  // Resolve a channel handle/name/URL/ID to a channel id + uploads playlist.
+  function resolveChannelId(transport, rawQuery){
+    var q = (rawQuery || '').trim();
+    if (!q) return Promise.reject(new Error('Enter a channel name, @handle, or URL'));
+    // Pull a handle or channel ID out of a pasted URL, if that's what we got.
+    var urlMatch = /youtube\.com\/(@[\w.-]+|channel\/[\w-]+)/i.exec(q);
+    if (urlMatch) q = urlMatch[1];
+    var byId = /^channel\/([\w-]+)$/i.exec(q);
+    var handle = null;
+    if (byId){
+      q = byId[1];
+    } else if (/^UC[\w-]{22}$/.test(q)){
+      // looks like a raw channel ID already
+    } else {
+      handle = q.replace(/^@/, '');
+    }
+
+    function withContentDetails(params){
+      return ytFetch('channels', params, transport).then(function(data){
+        var item = (data.items || [])[0];
+        if (!item) return null;
+        var uploads = item.contentDetails && item.contentDetails.relatedPlaylists && item.contentDetails.relatedPlaylists.uploads;
+        if (!uploads) return null;
+        return { channelId: item.id, uploadsPlaylistId: uploads, title: item.snippet && item.snippet.title };
+      });
+    }
+
+    var lookup = handle
+      ? withContentDetails({ part:'snippet,contentDetails', forHandle: handle })
+      : withContentDetails({ part:'snippet,contentDetails', id: q });
+
+    return lookup.then(function(found){
+      if (found) return found;
+      // Fall back to a channel-name search (covers legacy usernames and
+      // display names that don't resolve via forHandle).
+      return ytFetch('search', { part:'snippet', q:q, type:'channel', maxResults:'1' }, transport).then(function(data){
+        var item = (data.items || [])[0];
+        if (!item || !item.id || !item.id.channelId) throw new Error('No channel found for "' + rawQuery + '"');
+        return withContentDetails({ part:'snippet,contentDetails', id: item.id.channelId });
+      }).then(function(found2){
+        if (!found2) throw new Error('No channel found for "' + rawQuery + '"');
+        return found2;
+      });
+    });
+  }
+  // The channel's single most recent public upload, as a card-ready video.
+  function fetchCompetitorLatestVideo(transport, rawQuery){
+    return resolveChannelId(transport, rawQuery).then(function(chan){
+      return ytFetch('playlistItems', { part:'snippet', playlistId: chan.uploadsPlaylistId, maxResults:'1' }, transport).then(function(data){
+        var item = (data.items || [])[0];
+        if (!item) throw new Error('"' + chan.title + '" has no public uploads');
+        var videoId = item.snippet && item.snippet.resourceId && item.snippet.resourceId.videoId;
+        if (!videoId) throw new Error('"' + chan.title + '" has no public uploads');
+        return Promise.all([
+          ytFetch('videos', { part:'statistics,contentDetails', id: videoId }, transport),
+          fetchChannelAvatars(transport, [chan.channelId])
+        ]).then(function(res){
+          var vItem = (res[0].items || [])[0] || {};
+          var avatarMap = res[1];
+          return {
+            title: item.snippet.title,
+            channel: chan.title || item.snippet.channelTitle,
+            views: formatViews(parseInt((vItem.statistics && vItem.statistics.viewCount) || '0', 10)),
+            age: timeAgo(item.snippet.publishedAt),
+            duration: parseISODuration(vItem.contentDetails && vItem.contentDetails.duration),
+            thumbUrl: pickThumb(item.snippet.thumbnails),
+            avatarUrl: avatarMap[chan.channelId] || null,
+            desc: (item.snippet.description || '').slice(0,160)
+          };
+        });
+      });
+    });
+  }
+
+  // The only transport: the shared Cloudflare Workers proxy, if the page
+  // owner configured one. No visitor-supplied key path exists at all.
+  function resolveTransport(){
+    if (PROXY_URL) return { proxyUrl: PROXY_URL };
+    return null;
+  }
+  function hasLiveTransport(){
+    return !!resolveTransport();
+  }
+
+  var state = {
+    device: 'desktop',
+    preview: 'home',
+    uiTheme: 'dark',
+    ytTheme: 'dark',
+    channel: 'ThumbLab',
+    query: 'video editing tips',
+    avatar: null,
+    category: 'all',
+    searchTab: 'all',
+    liveStatus: 'idle',   // idle | loading | ok | error
+    liveError: '',
+    myVariants: [
+      { src: null, title: 'How I Edit Videos 10x Faster' },
+      { src: null, title: 'My Editing Setup Explained' },
+      { src: null, title: '5 Editing Mistakes I Used to Make' }
+    ],
+    // Competitor videos are pulled live from YouTube by channel name/@handle
+    // — no uploads. status: idle | loading | ok | error. video holds the
+    // fetched card data (see fetchCompetitorLatestVideo) once status is 'ok'.
+    competitors: [
+      { query: '', status: 'idle', error: '', video: null, token: 0 },
+      { query: '', status: 'idle', error: '', video: null, token: 0 },
+      { query: '', status: 'idle', error: '', video: null, token: 0 }
+    ],
+    pool: [],
+    combined: []
+  };
+
+  function currentHomeCategory(){
+    for (var i = 0; i < HOME_CATEGORIES.length; i++) if (HOME_CATEGORIES[i].key === state.category) return HOME_CATEGORIES[i];
+    return HOME_CATEGORIES[0];
+  }
+
+  function buildSyntheticPoolForCurrentContext(){
+    state.pool = state.preview === 'home' ? regenerateSyntheticPool(state.category) : syntheticForSearch(state.searchTab);
+  }
+
+  // Your own thumbnails and any competitor uploads are "priority" items:
+  // they get shuffled in among the top TOP_ZONE slots of the (separately
+  // shuffled) surrounding pool, so they land above the fold instead of
+  // anywhere in a 24-item feed.
+  var TOP_ZONE = 8;
+  function buildCombined(){
+    var regular = state.pool.slice();
+    shuffle(regular);
+
+    var priority = [];
+    state.myVariants.forEach(function(v, i){
+      if (v.src) priority.push({ type:'mine', index:i });
+    });
+    state.competitors.forEach(function(c, i){
+      if (c.video) priority.push({ type:'competitor', index:i });
+    });
+    shuffle(priority);
+
+    priority.forEach(function(item){
+      var at = randInt(0, Math.min(TOP_ZONE, regular.length));
+      regular.splice(at, 0, item);
+    });
+    state.combined = regular;
+  }
+
+  var refreshToken = 0;
+  function refreshContent(){
+    var myToken = ++refreshToken;
+    state.liveStatus = 'loading';
+    render();
+    var transport = resolveTransport();
+    var task = transport
+      ? (state.preview === 'home'
+          ? fetchHomeVideos(transport, currentHomeCategory().apiId)
+          : fetchSearchVideos(transport, state.query, state.searchTab))
+      : Promise.resolve(null);
+
+    task.then(function(items){
+      if (myToken !== refreshToken) return;
+      if (items){
+        state.pool = items.map(function(v){ return { type:'real', data:v }; });
+        state.liveStatus = 'ok';
+        state.liveError = '';
+      } else {
+        buildSyntheticPoolForCurrentContext();
+        state.liveStatus = 'idle';
+        state.liveError = '';
+      }
+    }).catch(function(err){
+      if (myToken !== refreshToken) return;
+      state.liveStatus = 'error';
+      state.liveError = (err && err.message) || 'Request failed';
+      buildSyntheticPoolForCurrentContext();
+    }).then(function(){
+      if (myToken !== refreshToken) return;
+      buildCombined();
+      render();
+    });
+  }
+
+  // ---------- rail: thumbnail + per-variant title slots ----------
+  var LETTERS = ['A','B','C'];
+  var thumbSlotsEl = document.getElementById('thumbSlots');
+  LETTERS.forEach(function(letter, i){
+    var variant = document.createElement('div');
+    variant.className = 'variant';
+    variant.innerHTML =
+      '<div class="variant__row">' +
+        '<div class="thumb-slot">' +
+          '<input type="file" accept="image/*" id="thumbInput' + i + '" class="thumb-slot__input" hidden>' +
+          '<label for="thumbInput' + i + '" class="thumb-slot__label">' +
+            '<span class="thumb-slot__plus" aria-hidden="true">+</span>' +
+            '<span class="thumb-slot__text">' + letter + '</span>' +
+          '</label>' +
+          '<img class="thumb-slot__img is-hidden" alt="Variant ' + letter + ' thumbnail">' +
+          '<button type="button" class="thumb-slot__remove is-hidden" aria-label="Remove variant ' + letter + '">&times;</button>' +
+        '</div>' +
+        '<input type="text" class="field field--sm variant__title" maxlength="100" placeholder="Variant ' + letter + ' title" value="' + escapeHtml(state.myVariants[i].title) + '">' +
+      '</div>';
+    thumbSlotsEl.appendChild(variant);
+
+    var input = variant.querySelector('.thumb-slot__input');
+    var img = variant.querySelector('.thumb-slot__img');
+    var label = variant.querySelector('.thumb-slot__label');
+    var removeBtn = variant.querySelector('.thumb-slot__remove');
+    var titleInput = variant.querySelector('.variant__title');
+
+    input.addEventListener('change', function(){
+      var file = input.files && input.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function(){
+        state.myVariants[i].src = reader.result;
+        img.src = reader.result;
+        img.classList.remove('is-hidden');
+        label.classList.add('is-hidden');
+        removeBtn.classList.remove('is-hidden');
+        buildCombined();
+        render();
+      };
+      reader.readAsDataURL(file);
+    });
+    removeBtn.addEventListener('click', function(){
+      state.myVariants[i].src = null;
+      input.value = '';
+      img.classList.add('is-hidden');
+      label.classList.remove('is-hidden');
+      removeBtn.classList.add('is-hidden');
+      buildCombined();
+      render();
+    });
+    titleInput.addEventListener('input', function(e){
+      state.myVariants[i].title = e.target.value;
+      render();
+    });
+  });
+
+  // ---------- rail: competitor slots ----------
+  // Competitors are pulled live from YouTube by channel name/@handle/URL —
+  // each slot fetches that channel's single most recent public upload and
+  // drops it into the feed alongside your own thumbnails, no uploads needed.
+  var COMPETITOR_LABELS = ['1','2','3'];
+  var competitorSlotsEl = document.getElementById('competitorSlots');
+  var competitorHintEls = [];
+  COMPETITOR_LABELS.forEach(function(label, i){
+    var variant = document.createElement('div');
+    variant.className = 'variant';
+    variant.innerHTML =
+      '<div class="variant__row">' +
+        '<input type="text" class="field field--sm variant__competitor-query" maxlength="80" placeholder="Competitor ' + label + ': channel name, @handle, or URL">' +
+      '</div>' +
+      '<p class="rail__hint rail__hint--tight" id="competitorHint' + i + '"></p>';
+    competitorSlotsEl.appendChild(variant);
+
+    var queryInput = variant.querySelector('.variant__competitor-query');
+    var hintEl = variant.querySelector('#competitorHint' + i);
+    competitorHintEls[i] = hintEl;
+
+    function renderHint(){
+      var c = state.competitors[i];
+      if (c.status === 'loading'){
+        hintEl.textContent = 'Looking up latest upload…';
+        hintEl.setAttribute('data-tone','info');
+      } else if (c.status === 'ok'){
+        hintEl.textContent = 'Showing: "' + c.video.title + '" — ' + c.video.channel;
+        hintEl.setAttribute('data-tone','ok');
+      } else if (c.status === 'error'){
+        hintEl.textContent = c.error;
+        hintEl.setAttribute('data-tone','error');
+      } else {
+        hintEl.textContent = '';
+        hintEl.removeAttribute('data-tone');
+      }
+    }
+    renderHint();
+
+    function resolveCompetitor(){
+      var query = state.competitors[i].query.trim();
+      var myToken = ++state.competitors[i].token;
+      if (!query){
+        state.competitors[i].status = 'idle';
+        state.competitors[i].error = '';
+        state.competitors[i].video = null;
+        renderHint();
+        buildCombined();
+        render();
+        return;
+      }
+      var transport = resolveTransport();
+      if (!transport){
+        state.competitors[i].status = 'error';
+        state.competitors[i].error = 'Live proxy isn’t configured yet (see PROXY_URL) — competitor lookups need it.';
+        state.competitors[i].video = null;
+        renderHint();
+        buildCombined();
+        render();
+        return;
+      }
+      state.competitors[i].status = 'loading';
+      state.competitors[i].error = '';
+      renderHint();
+      fetchCompetitorLatestVideo(transport, query).then(function(video){
+        if (myToken !== state.competitors[i].token) return;
+        state.competitors[i].status = 'ok';
+        state.competitors[i].video = video;
+        state.competitors[i].error = '';
+        renderHint();
+        buildCombined();
+        render();
+      }).catch(function(err){
+        if (myToken !== state.competitors[i].token) return;
+        state.competitors[i].status = 'error';
+        state.competitors[i].error = (err && err.message) || 'Could not load that channel';
+        state.competitors[i].video = null;
+        renderHint();
+        buildCombined();
+        render();
+      });
+    }
+
+    queryInput.addEventListener('input', function(e){
+      state.competitors[i].query = e.target.value;
+    });
+    queryInput.addEventListener('keydown', function(e){
+      if (e.key === 'Enter'){ e.preventDefault(); resolveCompetitor(); }
+    });
+    queryInput.addEventListener('blur', function(){ resolveCompetitor(); });
+  });
+
+  // ---------- rail: avatar slot ----------
+  var avatarSlotEl = document.getElementById('avatarSlot');
+  avatarSlotEl.innerHTML =
+    '<div class="avatar-slot">' +
+      '<input type="file" accept="image/*" id="avatarInput" hidden>' +
+      '<label for="avatarInput" class="avatar-slot__label" id="avatarLabel">+</label>' +
+      '<img class="avatar-slot__img is-hidden" id="avatarImg" alt="Channel avatar">' +
+      '<button type="button" class="avatar-slot__remove is-hidden" id="avatarRemove" aria-label="Remove avatar">&times;</button>' +
+    '</div>';
+  (function(){
+    var input = document.getElementById('avatarInput');
+    var img = document.getElementById('avatarImg');
+    var label = document.getElementById('avatarLabel');
+    var removeBtn = document.getElementById('avatarRemove');
+    input.addEventListener('change', function(){
+      var file = input.files && input.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function(){
+        state.avatar = reader.result;
+        img.src = reader.result;
+        img.classList.remove('is-hidden');
+        label.classList.add('is-hidden');
+        removeBtn.classList.remove('is-hidden');
+        render();
+      };
+      reader.readAsDataURL(file);
+    });
+    removeBtn.addEventListener('click', function(){
+      state.avatar = null;
+      input.value = '';
+      img.classList.add('is-hidden');
+      label.classList.remove('is-hidden');
+      removeBtn.classList.add('is-hidden');
+      render();
+    });
+  })();
+
+  // ---------- rail: text fields ----------
+  document.getElementById('channelInput').addEventListener('input', function(e){
+    state.channel = e.target.value || 'ThumbLab';
+    render();
+  });
+  document.getElementById('searchInput').addEventListener('input', function(e){
+    state.query = e.target.value;
+    render();
+  });
+  document.getElementById('searchInput').addEventListener('keydown', function(e){
+    if (e.key === 'Enter'){ e.preventDefault(); refreshContent(); }
+  });
+  document.getElementById('searchGoBtn').addEventListener('click', function(){ refreshContent(); });
+
+  // ---------- rail: segmented controls ----------
+  function wireSegmented(id, onChange){
+    var el = document.getElementById(id);
+    el.querySelectorAll('.segmented__btn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        el.querySelectorAll('.segmented__btn').forEach(function(b){
+          b.classList.remove('is-active');
+          b.setAttribute('aria-checked','false');
+        });
+        btn.classList.add('is-active');
+        btn.setAttribute('aria-checked','true');
+        onChange(btn.getAttribute('data-value'));
+      });
+    });
+  }
+  wireSegmented('deviceSeg', function(v){ state.device = v; render(); });
+  wireSegmented('uiThemeSeg', function(v){ state.uiTheme = v; render(); });
+  wireSegmented('themeSeg', function(v){ state.ytTheme = v; render(); });
+  wireSegmented('previewSeg', function(v){
+    state.preview = v;
+    document.getElementById('searchQueryPanel').classList.toggle('is-hidden', v !== 'search');
+    refreshContent();
+  });
+
+  // ---------- rail: actions ----------
+  document.getElementById('refreshBtn').addEventListener('click', function(){ refreshContent(); });
+  document.getElementById('shuffleBtn').addEventListener('click', function(){ buildCombined(); render(); });
+
+  // ---------- render ----------
+  var deviceEl = document.getElementById('device');
+  var bezelEl = document.getElementById('deviceBezel');
+  var screenEl = document.getElementById('screen');
+  var topEl = document.getElementById('ytTop');
+  var chipsEl = document.getElementById('ytChips');
+  var searchMetaEl = document.getElementById('ytSearchMeta');
+  var contentEl = document.getElementById('ytContent');
+  var statusEl = document.getElementById('statusLine');
+  var refreshBtnEl = document.getElementById('refreshBtn');
+
+  chipsEl.addEventListener('click', function(e){
+    var btn = e.target.closest('.yt-chip');
+    if (!btn || btn.disabled) return;
+    var key = btn.getAttribute('data-key');
+    if (state.preview === 'search') state.searchTab = key; else state.category = key;
+    refreshContent();
+  });
+
+  function avatarInnerHtml(src, initials, color){
+    if (src) return '<img src="' + src + '" alt="">';
+    return '<span style="background:' + color + ';width:100%;height:100%;display:flex;align-items:center;justify-content:center;">' + escapeHtml(initials) + '</span>';
+  }
+
+  function renderBezel(){
+    if (state.device === 'desktop'){
+      bezelEl.innerHTML =
+        '<span class="device__dot"></span><span class="device__dot"></span><span class="device__dot"></span>' +
+        '<span class="device__url">youtube.com</span>';
+    } else {
+      bezelEl.innerHTML = '<span class="device__notch"></span>';
+    }
+  }
+
+  function renderTop(){
+    var myAvatar = avatarInnerHtml(state.avatar, initialsOf(state.channel), '#3f4148');
+    var searchBoxHtml = state.preview === 'search'
+      ? '<div class="yt-top__search-box">' + escapeHtml(state.query || '') + '</div>'
+      : '<div class="yt-top__search-box" data-empty="true">Search</div>';
+
+    topEl.innerHTML =
+      '<div class="yt-top__left">' +
+        '<button class="yt-top__icon-btn" type="button">' + ICON.hamburger + '</button>' +
+        '<div class="yt-top__logo"><span class="yt-top__logo-badge">' + ICON.play + '</span>YouTube</div>' +
+      '</div>' +
+      '<div class="yt-top__search">' +
+        searchBoxHtml +
+        '<div class="yt-top__search-btn">' + ICON.search + '</div>' +
+        '<div class="yt-top__mic">' + ICON.mic + '</div>' +
+      '</div>' +
+      '<div class="yt-top__right"><div class="yt-avatar">' + myAvatar + '</div></div>';
+  }
+
+  function renderChips(){
+    var list = state.preview === 'search' ? SEARCH_TABS : HOME_CATEGORIES;
+    var activeKey = state.preview === 'search' ? state.searchTab : state.category;
+    var loading = state.liveStatus === 'loading';
+    chipsEl.innerHTML = list.map(function(c){
+      return '<button type="button" class="yt-chip" data-key="' + c.key + '" data-active="' + (c.key === activeKey) + '"' + (loading ? ' disabled' : '') + '>' + escapeHtml(c.label) + '</button>';
+    }).join('');
+    if (state.preview === 'search'){
+      searchMetaEl.classList.remove('is-hidden');
+      searchMetaEl.textContent = 'Results for "' + (state.query || '') + '"';
+    } else {
+      searchMetaEl.classList.add('is-hidden');
+    }
+  }
+
+  function renderStatus(){
+    if (state.liveStatus === 'loading'){
+      statusEl.textContent = 'Loading live videos from YouTube…';
+      statusEl.setAttribute('data-tone','info');
+    } else if (state.liveStatus === 'error'){
+      statusEl.textContent = 'Couldn’t load from YouTube (' + state.liveError + ') — showing generated videos instead.';
+      statusEl.setAttribute('data-tone','error');
+    } else if (hasLiveTransport()){
+      statusEl.textContent = 'Showing live videos from YouTube.';
+      statusEl.setAttribute('data-tone','ok');
+    } else {
+      statusEl.textContent = 'Showing generated placeholder videos (no live proxy configured yet).';
+      statusEl.removeAttribute('data-tone');
+    }
+    refreshBtnEl.disabled = state.liveStatus === 'loading';
+  }
+
+  function emptyStateHtml(){
+    if (state.preview === 'search' && !hasLiveTransport() && (state.searchTab === 'live' || state.searchTab === 'playlists')){
+      var kind = state.searchTab === 'live' ? 'live streams' : 'playlists';
+      return '<div class="yt-empty">Generated placeholders don’t include ' + kind + '. Real ' + kind + ' need the live proxy configured (see PROXY_URL).</div>';
+    }
+    return '<div class="yt-empty">Nothing to show yet — try New videos.</div>';
+  }
+
+  function thumbInnerHtml(item){
+    if (item.type === 'mine'){
+      var v = state.myVariants[item.index] || {};
+      return v.src ? ('<img class="yt-card__thumb" src="' + v.src + '" alt="">') : '';
+    }
+    if (item.type === 'competitor'){
+      var comp = state.competitors[item.index] || {};
+      var cv = comp.video;
+      if (!cv) return '';
+      return cv.thumbUrl
+        ? ('<img class="yt-card__thumb" src="' + cv.thumbUrl + '" alt="">')
+        : '<div class="yt-card__thumb-fill" style="background:linear-gradient(135deg,#3a3d46,#22242b)"><span>?</span></div>';
+    }
+    if (item.type === 'real'){
+      var r = item.data;
+      return r.thumbUrl
+        ? ('<img class="yt-card__thumb" src="' + r.thumbUrl + '" alt="">')
+        : '<div class="yt-card__thumb-fill" style="background:linear-gradient(135deg,#3a3d46,#22242b)"><span>?</span></div>';
+    }
+    var f = item.data;
+    return '<div class="yt-card__thumb-fill" style="background:' + f.grad + '"><span>' + escapeHtml(f.letter) + '</span></div>';
+  }
+
+  function cardData(item){
+    if (item.type === 'mine'){
+      var v = state.myVariants[item.index] || {};
+      return {
+        title: (v.title && v.title.trim()) || 'My Video Title',
+        channel: state.channel,
+        views: formatViews(randInt(40,9000)),
+        age: 'just now',
+        duration: randInt(3,22) + ':' + String(randInt(0,59)).padStart(2,'0'),
+        avatar: avatarInnerHtml(state.avatar, initialsOf(state.channel), '#3f4148'),
+        desc: 'This is your uploaded thumbnail, shown among the surrounding videos so you can see how it holds up.'
+      };
+    }
+    if (item.type === 'competitor'){
+      var comp = state.competitors[item.index] || {};
+      var cv = comp.video || {};
+      var compChannel = cv.channel || 'Competitor Channel';
+      return {
+        title: cv.title || 'Competitor Video',
+        channel: compChannel,
+        views: cv.views || '',
+        age: cv.age || '',
+        duration: cv.duration || '',
+        avatar: avatarInnerHtml(cv.avatarUrl, initialsOf(compChannel), hashColor(compChannel)),
+        desc: cv.desc || 'This competitor’s most recent upload, pulled live from YouTube for side-by-side comparison.'
+      };
+    }
+    if (item.type === 'real'){
+      var r = item.data;
+      return {
+        title: r.title,
+        channel: r.channel,
+        views: r.views,
+        age: r.age,
+        duration: r.duration,
+        avatar: avatarInnerHtml(r.avatarUrl, initialsOf(r.channel), hashColor(r.channel)),
+        desc: r.desc || rand(DESCRIPTIONS)
+      };
+    }
+    var f = item.data;
+    return {
+      title: f.title,
+      channel: f.channel,
+      views: f.views,
+      age: f.age,
+      duration: f.duration,
+      avatar: avatarInnerHtml(null, f.initials, f.avatarColor),
+      desc: f.desc
+    };
+  }
+
+  function renderGrid(){
+    var html = '<div class="yt-grid">';
+    state.combined.forEach(function(item){
+      var d = cardData(item);
+      html += '<article class="yt-card">' +
+        '<div class="yt-card__thumb-wrap">' +
+          thumbInnerHtml(item) +
+          (d.duration ? '<span class="yt-card__duration">' + escapeHtml(d.duration) + '</span>' : '') +
+        '</div>' +
+        '<div class="yt-card__meta">' +
+          '<div class="yt-avatar">' + d.avatar + '</div>' +
+          '<div class="yt-card__text">' +
+            '<div class="yt-card__title">' + escapeHtml(d.title) + '</div>' +
+            '<div class="yt-card__channel">' + escapeHtml(d.channel) + '</div>' +
+            '<div class="yt-card__stats">' + statsLine(d.views, d.age) + '</div>' +
+          '</div>' +
+        '</div>' +
+      '</article>';
+    });
+    html += '</div>';
+    contentEl.innerHTML = html;
+  }
+
+  function renderList(){
+    var html = '<div class="yt-list">';
+    state.combined.forEach(function(item){
+      var d = cardData(item);
+      html += '<article class="yt-row">' +
+        '<div class="yt-row__thumb-wrap">' +
+          thumbInnerHtml(item) +
+          (d.duration ? '<span class="yt-card__duration">' + escapeHtml(d.duration) + '</span>' : '') +
+        '</div>' +
+        '<div class="yt-row__meta">' +
+          '<div class="yt-row__title">' + escapeHtml(d.title) + '</div>' +
+          '<div class="yt-row__stats">' + statsLine(d.views, d.age) + '</div>' +
+          '<div class="yt-row__channel"><div class="yt-avatar" style="width:1.4rem;height:1.4rem;font-size:.55rem;">' + d.avatar + '</div><span class="yt-row__channel-name">' + escapeHtml(d.channel) + '</span></div>' +
+          '<div class="yt-row__desc">' + escapeHtml(d.desc) + '</div>' +
+        '</div>' +
+      '</article>';
+    });
+    html += '</div>';
+    contentEl.innerHTML = html;
+  }
+
+  function render(){
+    document.body.setAttribute('data-ui-theme', state.uiTheme);
+    deviceEl.setAttribute('data-device', state.device);
+    screenEl.setAttribute('data-device', state.device);
+    screenEl.setAttribute('data-yt-theme', state.ytTheme);
+    renderBezel();
+    renderTop();
+    renderChips();
+    renderStatus();
+    if (!state.combined.length){
+      contentEl.innerHTML = emptyStateHtml();
+    } else if (state.preview === 'search'){
+      renderList();
+    } else {
+      renderGrid();
+    }
+  }
+
+  refreshContent();
+})();
+</script>
+
+</html>
