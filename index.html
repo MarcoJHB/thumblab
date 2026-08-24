@@ -6,15 +6,15 @@
 <title>ThumbLab — YouTube Thumbnail Preview Console</title>
 <meta name="description" content="A realistic YouTube home/search feed with your thumbnail variants and live competitor uploads dropped in, powered by real YouTube data through a private proxy, across desktop, tablet, and mobile, in light or dark mode.">
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Roboto:wght@400;500;700&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Roboto:wght@400;500;700&display=swap');
 
   /* ---- ThumbLab console tokens ----
      The console chrome (this UI) and the simulated YouTube screen inside it
-     are two independent worlds with two independent theme switches — the
-     console defaults to dark, the simulated screen defaults to dark too,
-     but either can be flipped to light on its own, because the whole point
-     of the screen is faithfulness to YouTube's own real palette regardless
-     of what the console around it is doing. */
+     are two independent worlds. A single theme switch (bottom of the rail)
+     flips both together, because in practice people want one "dark mode"
+     toggle — but the screen keeps its own literal token set rather than
+     reusing the console's, because faithfulness to YouTube's real palette
+     is the point of the tool regardless of what drives the switch. */
   :root{
     --void:#121317;
     --surface:#1a1c22;
@@ -24,20 +24,25 @@
     --text:#edeef1;
     --text-dim:#9498a3;
     --text-faint:#5d616d;
-    --accent:#f2a93b;
-    --accent-ink:#241a06;
-    --accent-dim:#c9862a;
+    --accent:#22c55e;
+    --accent-ink:#07220f;
+    --accent-dim:#16a34a;
     --danger:#e5484d;
     --radius-sm:4px;
     --radius-md:8px;
     --font-display:'Inter','Inter UI',system-ui,sans-serif;
-    --font-mono:'IBM Plex Mono',ui-monospace,'SFMono-Regular',Menlo,monospace;
+    /* Same face as --font-display — kept as a separate token (rather than
+       collapsing every rule onto one variable) so the console's technical/
+       label text stays easy to re-differentiate later without touching
+       every rule that reads it. Only the simulated YouTube screen (`.yt`
+       and friends) uses a different, hardcoded font, on purpose. */
+    --font-mono:'Inter','Inter UI',system-ui,sans-serif;
   }
 
   /* Light console chrome — same token set, swapped values, set on <body>
      via JS so body's own background:var(--void) picks it up too. Only the
-     console chrome; the simulated YouTube screen has its own switch below
-     and never reads these tokens. */
+     console chrome; the simulated YouTube screen has its own token set
+     and follows the same switch, but never reads these tokens. */
   body[data-ui-theme="light"]{
     --void:#f3f4f6;
     --surface:#ffffff;
@@ -47,7 +52,6 @@
     --text:#1a1c22;
     --text-dim:#5d616d;
     --text-faint:#9498a3;
-    --accent-ink:#241a06;
   }
 
   *,*::before,*::after{box-sizing:border-box;}
@@ -91,11 +95,11 @@
   .lab__brand{display:flex;align-items:center;gap:.5rem;}
   .lab__brand-mark{
     width:1.6rem;height:1.6rem;
-    border-radius:50%;
-    background:conic-gradient(from 220deg, var(--accent), var(--accent-dim) 40%, var(--surface-raised-2) 41%, var(--surface-raised-2));
-    display:inline-block;
+    display:inline-flex;align-items:center;justify-content:center;
+    color:var(--accent);
     flex-shrink:0;
   }
+  .lab__brand-mark svg{width:100%;height:100%;}
   .lab__brand-name{
     font-weight:800;
     font-size:1.05rem;
@@ -223,27 +227,6 @@
   }
   .thumb-slot__remove:focus-visible{outline:2px solid var(--accent);}
 
-  .avatar-slot{
-    position:relative;
-    width:3.4rem;height:3.4rem;
-    border-radius:50%;
-    border:1.5px dashed var(--border);
-    background:var(--surface-raised);
-    overflow:hidden;
-  }
-  .avatar-slot__label{
-    position:absolute;inset:0;
-    display:flex;align-items:center;justify-content:center;
-    cursor:pointer;color:var(--text-faint);font-size:1rem;font-weight:600;
-  }
-  .avatar-slot__img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
-  .avatar-slot__remove{
-    position:absolute;bottom:-1px;right:-1px;
-    width:1.05rem;height:1.05rem;border-radius:50%;border:none;
-    background:rgba(0,0,0,.65);color:#fff;font-size:.65rem;cursor:pointer;
-    display:flex;align-items:center;justify-content:center;
-  }
-
   .btn{
     width:100%;
     background:var(--surface-raised);
@@ -296,16 +279,19 @@
   /* ---------- bench / device stage ---------- */
   .bench{
     background:
-      radial-gradient(circle at 50% 0%, rgba(242,169,59,.06), transparent 55%),
+      radial-gradient(circle at 50% 0%, rgba(34,197,94,.06), transparent 55%),
       var(--void);
     display:flex;
     align-items:flex-start;
     justify-content:center;
-    padding:2rem 1.25rem 3rem;
+    padding:0;
     overflow:auto;
   }
 
-  .device{width:min(1120px,100%);transition:width .18s ease;}
+  /* Desktop fills the whole bench edge-to-edge — no side gaps. Tablet and
+     mobile stay fixed-width silhouettes centered on the bench, since those
+     are meant to read as a smaller device sitting on a larger canvas. */
+  .device{width:100%;transition:width .18s ease;}
   .device[data-device="tablet"]{width:46rem;max-width:100%;}
   .device[data-device="mobile"]{width:24.4rem;max-width:100%;}
 
@@ -500,7 +486,7 @@
 <div class="lab">
   <header class="lab__header">
     <div class="lab__brand">
-      <span class="lab__brand-mark" aria-hidden="true"></span>
+      <span class="lab__brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-1.91l-.01-.01L23 10z"/></svg></span>
       <span class="lab__brand-name">ThumbLab</span>
     </div>
     <span class="lab__tagline">thumbnail preview console</span>
@@ -514,13 +500,9 @@
       </section>
 
       <section class="panel">
-        <h2 class="panel__label">Channel avatar</h2>
-        <div id="avatarSlot"></div>
-      </section>
-
-      <section class="panel">
-        <h2 class="panel__label">Channel name</h2>
-        <input id="channelInput" class="field" type="text" maxlength="40" value="ThumbLab">
+        <h2 class="panel__label">Your channel</h2>
+        <input type="text" class="field field--sm" id="myChannelInput" maxlength="80" placeholder="Channel name, @handle, or URL">
+        <p class="rail__hint rail__hint--tight" id="myChannelHint"></p>
       </section>
 
       <section class="panel">
@@ -537,22 +519,6 @@
         <div class="segmented" id="previewSeg" role="radiogroup" aria-label="Preview surface">
           <button type="button" class="segmented__btn is-active" data-value="home" role="radio" aria-checked="true">Home page</button>
           <button type="button" class="segmented__btn" data-value="search" role="radio" aria-checked="false">Search results</button>
-        </div>
-      </section>
-
-      <section class="panel">
-        <h2 class="panel__label">Interface theme</h2>
-        <div class="segmented" id="uiThemeSeg" role="radiogroup" aria-label="Interface theme">
-          <button type="button" class="segmented__btn" data-value="light" role="radio" aria-checked="false">Light</button>
-          <button type="button" class="segmented__btn is-active" data-value="dark" role="radio" aria-checked="true">Dark</button>
-        </div>
-      </section>
-
-      <section class="panel">
-        <h2 class="panel__label">YouTube theme</h2>
-        <div class="segmented" id="themeSeg" role="radiogroup" aria-label="YouTube theme">
-          <button type="button" class="segmented__btn" data-value="light" role="radio" aria-checked="false">Light</button>
-          <button type="button" class="segmented__btn is-active" data-value="dark" role="radio" aria-checked="true">Dark</button>
         </div>
       </section>
 
@@ -575,6 +541,11 @@
         <button type="button" class="btn" id="shuffleBtn">Shuffle order</button>
       </section>
       <p class="rail__status" id="statusLine" aria-live="polite"></p>
+
+      <div class="segmented" id="themeSeg" role="radiogroup" aria-label="Theme">
+        <button type="button" class="segmented__btn" data-value="light" role="radio" aria-checked="false">Light</button>
+        <button type="button" class="segmented__btn is-active" data-value="dark" role="radio" aria-checked="true">Dark</button>
+      </div>
 
       <p class="rail__note">Everything renders locally in your browser. Nothing you upload is sent anywhere. Live video requests go through this site's private proxy — no API key is ever visible to you or anyone else viewing this page.</p>
     </aside>
@@ -1009,9 +980,13 @@
     preview: 'home',
     uiTheme: 'dark',
     ytTheme: 'dark',
-    channel: 'ThumbLab',
     query: 'video editing tips',
-    avatar: null,
+    // Your own channel is now resolved live from YouTube, the same way a
+    // competitor is — type a name/@handle/URL and it pulls the real name +
+    // avatar. `name` is what actually renders (falls back to "ThumbLab"
+    // until something resolves); status/error/token mirror the competitor
+    // slot pattern below.
+    myChannel: { query: '', status: 'idle', error: '', name: 'ThumbLab', avatarUrl: null, token: 0 },
     category: 'all',
     searchTab: 'all',
     liveStatus: 'idle',   // idle | loading | ok | error
@@ -1251,49 +1226,77 @@
     queryInput.addEventListener('blur', function(){ resolveCompetitor(); });
   });
 
-  // ---------- rail: avatar slot ----------
-  var avatarSlotEl = document.getElementById('avatarSlot');
-  avatarSlotEl.innerHTML =
-    '<div class="avatar-slot">' +
-      '<input type="file" accept="image/*" id="avatarInput" hidden>' +
-      '<label for="avatarInput" class="avatar-slot__label" id="avatarLabel">+</label>' +
-      '<img class="avatar-slot__img is-hidden" id="avatarImg" alt="Channel avatar">' +
-      '<button type="button" class="avatar-slot__remove is-hidden" id="avatarRemove" aria-label="Remove avatar">&times;</button>' +
-    '</div>';
-  (function(){
-    var input = document.getElementById('avatarInput');
-    var img = document.getElementById('avatarImg');
-    var label = document.getElementById('avatarLabel');
-    var removeBtn = document.getElementById('avatarRemove');
-    input.addEventListener('change', function(){
-      var file = input.files && input.files[0];
-      if (!file) return;
-      var reader = new FileReader();
-      reader.onload = function(){
-        state.avatar = reader.result;
-        img.src = reader.result;
-        img.classList.remove('is-hidden');
-        label.classList.add('is-hidden');
-        removeBtn.classList.remove('is-hidden');
-        render();
-      };
-      reader.readAsDataURL(file);
-    });
-    removeBtn.addEventListener('click', function(){
-      state.avatar = null;
-      input.value = '';
-      img.classList.add('is-hidden');
-      label.classList.remove('is-hidden');
-      removeBtn.classList.add('is-hidden');
+  // ---------- rail: your channel (resolved live, same as a competitor) ----------
+  var myChannelInputEl = document.getElementById('myChannelInput');
+  var myChannelHintEl = document.getElementById('myChannelHint');
+  function renderMyChannelHint(){
+    var c = state.myChannel;
+    if (c.status === 'loading'){
+      myChannelHintEl.textContent = 'Looking up channel…';
+      myChannelHintEl.setAttribute('data-tone','info');
+    } else if (c.status === 'ok'){
+      myChannelHintEl.textContent = 'Showing as: ' + c.name;
+      myChannelHintEl.setAttribute('data-tone','ok');
+    } else if (c.status === 'error'){
+      myChannelHintEl.textContent = c.error;
+      myChannelHintEl.setAttribute('data-tone','error');
+    } else {
+      myChannelHintEl.textContent = '';
+      myChannelHintEl.removeAttribute('data-tone');
+    }
+  }
+  function resolveMyChannel(){
+    var query = state.myChannel.query.trim();
+    var myToken = ++state.myChannel.token;
+    if (!query){
+      state.myChannel.status = 'idle';
+      state.myChannel.error = '';
+      state.myChannel.name = 'ThumbLab';
+      state.myChannel.avatarUrl = null;
+      renderMyChannelHint();
+      render();
+      return;
+    }
+    var transport = resolveTransport();
+    if (!transport){
+      state.myChannel.status = 'error';
+      state.myChannel.error = 'Live proxy isn’t configured yet (see PROXY_URL) — channel lookup needs it.';
+      renderMyChannelHint();
+      render();
+      return;
+    }
+    state.myChannel.status = 'loading';
+    state.myChannel.error = '';
+    renderMyChannelHint();
+    resolveChannelId(transport, query).then(function(chan){
+      return fetchChannelAvatars(transport, [chan.channelId]).then(function(avatarMap){
+        return { title: chan.title, avatarUrl: avatarMap[chan.channelId] || null };
+      });
+    }).then(function(result){
+      if (myToken !== state.myChannel.token) return;
+      state.myChannel.status = 'ok';
+      state.myChannel.name = result.title || query;
+      state.myChannel.avatarUrl = result.avatarUrl;
+      state.myChannel.error = '';
+      renderMyChannelHint();
+      render();
+    }).catch(function(err){
+      if (myToken !== state.myChannel.token) return;
+      state.myChannel.status = 'error';
+      state.myChannel.error = (err && err.message) || 'Could not find that channel';
+      renderMyChannelHint();
       render();
     });
-  })();
+  }
+  myChannelInputEl.addEventListener('input', function(e){
+    state.myChannel.query = e.target.value;
+  });
+  myChannelInputEl.addEventListener('keydown', function(e){
+    if (e.key === 'Enter'){ e.preventDefault(); resolveMyChannel(); }
+  });
+  myChannelInputEl.addEventListener('blur', function(){ resolveMyChannel(); });
 
   // ---------- rail: text fields ----------
-  document.getElementById('channelInput').addEventListener('input', function(e){
-    state.channel = e.target.value || 'ThumbLab';
-    render();
-  });
   document.getElementById('searchInput').addEventListener('input', function(e){
     state.query = e.target.value;
     render();
@@ -1319,8 +1322,11 @@
     });
   }
   wireSegmented('deviceSeg', function(v){ state.device = v; render(); });
-  wireSegmented('uiThemeSeg', function(v){ state.uiTheme = v; render(); });
-  wireSegmented('themeSeg', function(v){ state.ytTheme = v; render(); });
+  // One switch drives both worlds — the console chrome and the simulated
+  // YouTube screen — since in practice people want a single "dark mode"
+  // toggle rather than two. They still use separate token sets under the
+  // hood (see the CSS comment up top), just flipped together now.
+  wireSegmented('themeSeg', function(v){ state.uiTheme = v; state.ytTheme = v; render(); });
   wireSegmented('previewSeg', function(v){
     state.preview = v;
     document.getElementById('searchQueryPanel').classList.toggle('is-hidden', v !== 'search');
@@ -1366,7 +1372,7 @@
   }
 
   function renderTop(){
-    var myAvatar = avatarInnerHtml(state.avatar, initialsOf(state.channel), '#3f4148');
+    var myAvatar = avatarInnerHtml(state.myChannel.avatarUrl, initialsOf(state.myChannel.name), '#3f4148');
     var searchBoxHtml = state.preview === 'search'
       ? '<div class="yt-top__search-box">' + escapeHtml(state.query || '') + '</div>'
       : '<div class="yt-top__search-box" data-empty="true">Search</div>';
@@ -1452,11 +1458,11 @@
       var v = state.myVariants[item.index] || {};
       return {
         title: (v.title && v.title.trim()) || 'My Video Title',
-        channel: state.channel,
+        channel: state.myChannel.name,
         views: formatViews(randInt(40,9000)),
         age: 'just now',
         duration: randInt(3,22) + ':' + String(randInt(0,59)).padStart(2,'0'),
-        avatar: avatarInnerHtml(state.avatar, initialsOf(state.channel), '#3f4148'),
+        avatar: avatarInnerHtml(state.myChannel.avatarUrl, initialsOf(state.myChannel.name), '#3f4148'),
         desc: 'This is your uploaded thumbnail, shown among the surrounding videos so you can see how it holds up.'
       };
     }
