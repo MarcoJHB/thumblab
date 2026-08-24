@@ -231,6 +231,9 @@
   .variant__row{display:flex;gap:.55rem;align-items:stretch;}
   .variant__title{flex:1;min-width:0;}
   .variant__channel{margin-top:.4rem;}
+  /* Dimmed + inert while "use most recent video" is on, instead of testing
+     uploaded thumbnails. */
+  .variants.is-disabled{opacity:.45;pointer-events:none;}
 
   .thumb-slot{
     position:relative;
@@ -240,6 +243,12 @@
     border:1.5px dashed var(--border);
     background:var(--surface-raised);
     overflow:hidden;
+    transition:border-color .12s ease,background .12s ease;
+  }
+  .thumb-slot.is-dragover{
+    border-color:var(--accent);
+    border-style:solid;
+    background:var(--surface-raised-2);
   }
   .thumb-slot__label{
     position:absolute;inset:0;
@@ -315,6 +324,20 @@
   .rail__hint[data-tone="ok"]{color:var(--accent);}
   .rail__hint[data-tone="info"]{color:var(--text-dim);}
   .rail__hint--tight{margin-top:.35rem;min-height:.9em;}
+  .checkbox-row{
+    display:flex;
+    align-items:center;
+    gap:.5rem;
+    margin-top:.25rem;
+    font-size:.78rem;
+    color:var(--text-dim);
+    cursor:pointer;
+  }
+  .checkbox-row__input{
+    width:1rem;height:1rem;flex-shrink:0;
+    accent-color:var(--accent);
+    cursor:pointer;
+  }
   .rail__status{
     margin:0;
     font-family:var(--font-mono);
@@ -503,7 +526,6 @@
 
   .yt-card{cursor:default;}
   .yt-card__thumb-wrap{position:relative;width:100%;aspect-ratio:16/9;border-radius:10px;overflow:hidden;background:#000;}
-  .device__screen[data-device="mobile"] .yt-card__thumb-wrap{border-radius:0;}
   .yt-card__thumb{width:100%;height:100%;object-fit:cover;}
   .yt-card__thumb-fill{width:100%;height:100%;display:flex;align-items:center;justify-content:center;position:relative;}
   .yt-card__thumb-fill span{font-size:2.6rem;font-weight:800;color:rgba(255,255,255,.5);font-family:var(--font-display);}
@@ -513,7 +535,6 @@
     padding:.05rem .3rem;border-radius:3px;
   }
   .yt-card__meta{display:flex;gap:.6rem;margin-top:.6rem;}
-  .device__screen[data-device="mobile"] .yt-card__meta{padding:0 1.1rem .2rem;margin-top:.7rem;}
   .yt-card__text{min-width:0;}
   .yt-card__title{
     font-size:.92rem;font-weight:500;line-height:1.35;
@@ -525,9 +546,8 @@
   .yt-row{display:flex;gap:1rem;}
   .device__screen[data-device="mobile"] .yt-row{flex-direction:column;}
   .yt-row__thumb-wrap{position:relative;flex-shrink:0;width:23rem;max-width:46%;aspect-ratio:16/9;border-radius:10px;overflow:hidden;background:#000;}
-  .device__screen[data-device="mobile"] .yt-row__thumb-wrap{width:100%;max-width:100%;border-radius:0;}
+  .device__screen[data-device="mobile"] .yt-row__thumb-wrap{width:100%;max-width:100%;}
   .yt-row__meta{min-width:0;flex:1;}
-  .device__screen[data-device="mobile"] .yt-row__meta{padding:0 1.1rem;}
   .yt-row__title{font-size:1.05rem;font-weight:500;line-height:1.4;margin-bottom:.3rem;}
   .yt-row__stats{font-size:.82rem;color:var(--yt-text-secondary);margin-bottom:.55rem;}
   .yt-row__channel{display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem;}
@@ -553,12 +573,17 @@
       <section class="panel">
         <h2 class="panel__label">Your thumbnails · up to 3</h2>
         <div class="variants" id="thumbSlots"></div>
+        <p class="rail__hint rail__hint--tight" id="thumbSlotsHint">You can drag and drop images too.</p>
       </section>
 
       <section class="panel">
         <h2 class="panel__label">Your channel</h2>
         <input type="text" class="field field--sm" id="myChannelInput" maxlength="80" placeholder="Channel name, @handle, or URL">
         <p class="rail__hint rail__hint--tight" id="myChannelHint"></p>
+        <label class="checkbox-row" for="useLiveVideoToggle">
+          <input type="checkbox" id="useLiveVideoToggle" class="checkbox-row__input">
+          <span>Use my most recent video instead of testing thumbnails</span>
+        </label>
       </section>
 
       <section class="panel">
@@ -1016,49 +1041,56 @@
   // video. Pulls a small window of recent uploads (instead of just the
   // single latest) so a channel that posts Shorts more often than long-form
   // videos still surfaces its latest long-form one here, rather than a Short.
+  // Takes an already-resolved { channelId, uploadsPlaylistId, title } so it
+  // can be reused both for competitors (resolved fresh each time) and for
+  // "my channel" (resolved once, then reused whenever the latest-video
+  // toggle needs a refetch, without re-resolving the channel every time).
+  function fetchLatestLongFormVideoForChannel(transport, chan){
+    return ytFetch('playlistItems', { part:'snippet', playlistId: chan.uploadsPlaylistId, maxResults:'15' }, transport).then(function(data){
+      var items = (data.items || []).filter(function(it){
+        return it.snippet && it.snippet.resourceId && it.snippet.resourceId.videoId;
+      });
+      if (!items.length) throw new Error('"' + chan.title + '" has no public uploads');
+      var videoIds = items.map(function(it){ return it.snippet.resourceId.videoId; });
+      return Promise.all([
+        ytFetch('videos', { part:'statistics,contentDetails', id: videoIds.join(',') }, transport),
+        fetchChannelAvatars(transport, [chan.channelId])
+      ]).then(function(res){
+        var statsMap = {};
+        (res[0].items || []).forEach(function(it){ statsMap[it.id] = it; });
+        var avatarMap = res[1];
+        // Uploads playlists are newest-first: walk in that order and use
+        // the first one that isn't a Short.
+        var item = null, vItem = null;
+        for (var i = 0; i < items.length; i++){
+          var videoId = items[i].snippet.resourceId.videoId;
+          var stats = statsMap[videoId];
+          if (!stats) continue;
+          var secs = durationSeconds(stats.contentDetails && stats.contentDetails.duration);
+          if (secs === null || secs > MAX_SHORT_SECONDS){ item = items[i]; vItem = stats; break; }
+        }
+        if (!item){
+          // Every recent upload in the window was a Short — fall back to
+          // the single most recent one rather than showing an error.
+          item = items[0];
+          vItem = statsMap[item.snippet.resourceId.videoId] || {};
+        }
+        return {
+          title: item.snippet.title,
+          channel: chan.title || item.snippet.channelTitle,
+          views: formatViews(parseInt((vItem.statistics && vItem.statistics.viewCount) || '0', 10)),
+          age: timeAgo(item.snippet.publishedAt),
+          duration: parseISODuration(vItem.contentDetails && vItem.contentDetails.duration),
+          thumbUrl: pickThumb(item.snippet.thumbnails),
+          avatarUrl: avatarMap[chan.channelId] || null,
+          desc: (item.snippet.description || '').slice(0,160)
+        };
+      });
+    });
+  }
   function fetchCompetitorLatestVideo(transport, rawQuery){
     return resolveChannelId(transport, rawQuery).then(function(chan){
-      return ytFetch('playlistItems', { part:'snippet', playlistId: chan.uploadsPlaylistId, maxResults:'15' }, transport).then(function(data){
-        var items = (data.items || []).filter(function(it){
-          return it.snippet && it.snippet.resourceId && it.snippet.resourceId.videoId;
-        });
-        if (!items.length) throw new Error('"' + chan.title + '" has no public uploads');
-        var videoIds = items.map(function(it){ return it.snippet.resourceId.videoId; });
-        return Promise.all([
-          ytFetch('videos', { part:'statistics,contentDetails', id: videoIds.join(',') }, transport),
-          fetchChannelAvatars(transport, [chan.channelId])
-        ]).then(function(res){
-          var statsMap = {};
-          (res[0].items || []).forEach(function(it){ statsMap[it.id] = it; });
-          var avatarMap = res[1];
-          // Uploads playlists are newest-first: walk in that order and use
-          // the first one that isn't a Short.
-          var item = null, vItem = null;
-          for (var i = 0; i < items.length; i++){
-            var videoId = items[i].snippet.resourceId.videoId;
-            var stats = statsMap[videoId];
-            if (!stats) continue;
-            var secs = durationSeconds(stats.contentDetails && stats.contentDetails.duration);
-            if (secs === null || secs > MAX_SHORT_SECONDS){ item = items[i]; vItem = stats; break; }
-          }
-          if (!item){
-            // Every recent upload in the window was a Short — fall back to
-            // the single most recent one rather than showing an error.
-            item = items[0];
-            vItem = statsMap[item.snippet.resourceId.videoId] || {};
-          }
-          return {
-            title: item.snippet.title,
-            channel: chan.title || item.snippet.channelTitle,
-            views: formatViews(parseInt((vItem.statistics && vItem.statistics.viewCount) || '0', 10)),
-            age: timeAgo(item.snippet.publishedAt),
-            duration: parseISODuration(vItem.contentDetails && vItem.contentDetails.duration),
-            thumbUrl: pickThumb(item.snippet.thumbnails),
-            avatarUrl: avatarMap[chan.channelId] || null,
-            desc: (item.snippet.description || '').slice(0,160)
-          };
-        });
-      });
+      return fetchLatestLongFormVideoForChannel(transport, chan);
     });
   }
 
@@ -1082,8 +1114,20 @@
     // competitor is — type a name/@handle/URL and it pulls the real name +
     // avatar. `name` is what actually renders (falls back to "ThumbLab"
     // until something resolves); status/error/token mirror the competitor
-    // slot pattern below.
-    myChannel: { query: '', status: 'idle', error: '', name: 'ThumbLab', avatarUrl: null, token: 0 },
+    // slot pattern below. channelId/uploadsPlaylistId are kept once resolved
+    // so "use most recent video" can fetch/refetch without re-resolving the
+    // channel every time. video/videoStatus/videoError/videoToken mirror the
+    // competitor video-fetch pattern, used only when useLiveVideo is on.
+    myChannel: {
+      query: '', status: 'idle', error: '', name: 'ThumbLab', avatarUrl: null, token: 0,
+      channelId: null, uploadsPlaylistId: null,
+      video: null, videoStatus: 'idle', videoError: '', videoToken: 0
+    },
+    // When true, "Your thumbnails" is disabled and the feed instead shows
+    // your channel's own latest long-form upload (state.myChannel.video) —
+    // for testing how an already-published video reads next to competitors,
+    // rather than testing unpublished thumbnail variants.
+    useLiveVideo: false,
     category: 'all',
     searchTab: 'all',
     liveStatus: 'idle',   // idle | loading | ok | error
@@ -1105,6 +1149,93 @@
     combined: []
   };
 
+  // ---------- persistence: remember what was entered across refreshes ----------
+  // Everything the visitor typed or uploaded (titles, images, channel/
+  // competitor queries, category/device/theme/preview choices) is saved to
+  // localStorage — resolved *live* data (fetched video stats, avatars,
+  // channel names) is deliberately NOT saved, since it can go stale; instead
+  // any restored query is simply re-resolved live again on load, same as if
+  // the visitor had just typed it in.
+  var STORAGE_KEY = 'thumblab:state:v1';
+  var saveStateTimer = null;
+  function scheduleSave(){
+    if (saveStateTimer) clearTimeout(saveStateTimer);
+    saveStateTimer = setTimeout(function(){
+      saveStateTimer = null;
+      persistState();
+    }, 400);
+  }
+  function persistState(){
+    var payload = {
+      v: 1,
+      device: state.device,
+      preview: state.preview,
+      uiTheme: state.uiTheme,
+      ytTheme: state.ytTheme,
+      query: state.query,
+      category: state.category,
+      searchTab: state.searchTab,
+      useLiveVideo: state.useLiveVideo,
+      myChannelQuery: state.myChannel.query,
+      myVariants: state.myVariants.map(function(v){ return { src: v.src, title: v.title }; }),
+      competitorQueries: state.competitors.map(function(c){ return c.query; })
+    };
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    } catch (err) {
+      // Most likely quota exceeded from large uploaded images — retry
+      // without the image data so titles/queries/settings still persist
+      // rather than losing everything. If even that fails, give up quietly:
+      // persistence is a nicety, not something the app depends on.
+      try {
+        var light = {
+          v: payload.v, device: payload.device, preview: payload.preview,
+          uiTheme: payload.uiTheme, ytTheme: payload.ytTheme, query: payload.query,
+          category: payload.category, searchTab: payload.searchTab, useLiveVideo: payload.useLiveVideo,
+          myChannelQuery: payload.myChannelQuery,
+          myVariants: payload.myVariants.map(function(v){ return { src: null, title: v.title }; }),
+          competitorQueries: payload.competitorQueries
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(light));
+      } catch (err2) { /* give up quietly */ }
+    }
+  }
+  function loadPersisted(){
+    var raw;
+    try { raw = localStorage.getItem(STORAGE_KEY); } catch (err) { return null; }
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch (err) { return null; }
+  }
+  // True once a saved device choice has actually been applied below — lets
+  // the startup code skip the viewport-based auto-guess (round 12) in favor
+  // of what the visitor last picked by hand.
+  var deviceRestoredFromStorage = false;
+  (function applyPersistedState(){
+    var saved = loadPersisted();
+    if (!saved) return;
+    if (typeof saved.device === 'string'){ state.device = saved.device; deviceRestoredFromStorage = true; }
+    if (typeof saved.preview === 'string') state.preview = saved.preview;
+    if (typeof saved.uiTheme === 'string') state.uiTheme = saved.uiTheme;
+    if (typeof saved.ytTheme === 'string') state.ytTheme = saved.ytTheme;
+    if (typeof saved.query === 'string') state.query = saved.query;
+    if (typeof saved.category === 'string') state.category = saved.category;
+    if (typeof saved.searchTab === 'string') state.searchTab = saved.searchTab;
+    if (typeof saved.useLiveVideo === 'boolean') state.useLiveVideo = saved.useLiveVideo;
+    if (typeof saved.myChannelQuery === 'string') state.myChannel.query = saved.myChannelQuery;
+    if (Array.isArray(saved.myVariants)){
+      saved.myVariants.slice(0,3).forEach(function(v, i){
+        if (!state.myVariants[i] || !v) return;
+        if (typeof v.title === 'string') state.myVariants[i].title = v.title;
+        if (typeof v.src === 'string') state.myVariants[i].src = v.src;
+      });
+    }
+    if (Array.isArray(saved.competitorQueries)){
+      saved.competitorQueries.slice(0,3).forEach(function(q, i){
+        if (state.competitors[i] && typeof q === 'string') state.competitors[i].query = q;
+      });
+    }
+  })();
+
   function currentHomeCategory(){
     for (var i = 0; i < HOME_CATEGORIES.length; i++) if (HOME_CATEGORIES[i].key === state.category) return HOME_CATEGORIES[i];
     return HOME_CATEGORIES[0];
@@ -1124,9 +1255,13 @@
     shuffle(regular);
 
     var priority = [];
-    state.myVariants.forEach(function(v, i){
-      if (v.src) priority.push({ type:'mine', index:i });
-    });
+    if (state.useLiveVideo){
+      if (state.myChannel.video) priority.push({ type:'mine-live' });
+    } else {
+      state.myVariants.forEach(function(v, i){
+        if (v.src) priority.push({ type:'mine', index:i });
+      });
+    }
     state.competitors.forEach(function(c, i){
       if (c.video) priority.push({ type:'competitor', index:i });
     });
@@ -1178,32 +1313,33 @@
   var LETTERS = ['A','B','C'];
   var thumbSlotsEl = document.getElementById('thumbSlots');
   LETTERS.forEach(function(letter, i){
+    var hasImg = !!state.myVariants[i].src;
     var variant = document.createElement('div');
     variant.className = 'variant';
     variant.innerHTML =
       '<div class="variant__row">' +
         '<div class="thumb-slot">' +
           '<input type="file" accept="image/*" id="thumbInput' + i + '" class="thumb-slot__input" hidden>' +
-          '<label for="thumbInput' + i + '" class="thumb-slot__label">' +
+          '<label for="thumbInput' + i + '" class="thumb-slot__label' + (hasImg ? ' is-hidden' : '') + '">' +
             '<span class="thumb-slot__plus" aria-hidden="true">+</span>' +
             '<span class="thumb-slot__text">' + letter + '</span>' +
           '</label>' +
-          '<img class="thumb-slot__img is-hidden" alt="Variant ' + letter + ' thumbnail">' +
-          '<button type="button" class="thumb-slot__remove is-hidden" aria-label="Remove variant ' + letter + '">&times;</button>' +
+          '<img class="thumb-slot__img' + (hasImg ? '' : ' is-hidden') + '" alt="Variant ' + letter + ' thumbnail"' + (hasImg ? ' src="' + state.myVariants[i].src + '"' : '') + '>' +
+          '<button type="button" class="thumb-slot__remove' + (hasImg ? '' : ' is-hidden') + '" aria-label="Remove variant ' + letter + '">&times;</button>' +
         '</div>' +
         '<input type="text" class="field field--sm variant__title" maxlength="100" placeholder="Variant ' + letter + ' title" value="' + escapeHtml(state.myVariants[i].title) + '">' +
       '</div>';
     thumbSlotsEl.appendChild(variant);
 
+    var slot = variant.querySelector('.thumb-slot');
     var input = variant.querySelector('.thumb-slot__input');
     var img = variant.querySelector('.thumb-slot__img');
     var label = variant.querySelector('.thumb-slot__label');
     var removeBtn = variant.querySelector('.thumb-slot__remove');
     var titleInput = variant.querySelector('.variant__title');
 
-    input.addEventListener('change', function(){
-      var file = input.files && input.files[0];
-      if (!file) return;
+    function acceptFile(file){
+      if (!file || !/^image\//.test(file.type)) return;
       var reader = new FileReader();
       reader.onload = function(){
         state.myVariants[i].src = reader.result;
@@ -1215,6 +1351,10 @@
         render();
       };
       reader.readAsDataURL(file);
+    }
+
+    input.addEventListener('change', function(){
+      acceptFile(input.files && input.files[0]);
     });
     removeBtn.addEventListener('click', function(){
       state.myVariants[i].src = null;
@@ -1229,7 +1369,36 @@
       state.myVariants[i].title = e.target.value;
       render();
     });
+
+    // Drag and drop straight onto the A/B/C box, as an alternative to the
+    // file picker.
+    ['dragenter','dragover'].forEach(function(evt){
+      slot.addEventListener(evt, function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        slot.classList.add('is-dragover');
+      });
+    });
+    ['dragleave','dragend'].forEach(function(evt){
+      slot.addEventListener(evt, function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        slot.classList.remove('is-dragover');
+      });
+    });
+    slot.addEventListener('drop', function(e){
+      e.preventDefault();
+      e.stopPropagation();
+      slot.classList.remove('is-dragover');
+      var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      acceptFile(file);
+    });
   });
+  // Dropping an image outside a thumbnail box (or missing the target
+  // slightly) would otherwise make the browser navigate to/open the file —
+  // swallow it globally as a safety net.
+  window.addEventListener('dragover', function(e){ e.preventDefault(); });
+  window.addEventListener('drop', function(e){ e.preventDefault(); });
 
   // ---------- rail: competitor slots ----------
   // Competitors are pulled live from YouTube by channel name/@handle/URL —
@@ -1249,6 +1418,7 @@
     competitorSlotsEl.appendChild(variant);
 
     var queryInput = variant.querySelector('.variant__competitor-query');
+    queryInput.value = state.competitors[i].query;
     var hintEl = variant.querySelector('#competitorHint' + i);
     competitorHintEls[i] = hintEl;
 
@@ -1316,15 +1486,21 @@
 
     queryInput.addEventListener('input', function(e){
       state.competitors[i].query = e.target.value;
+      scheduleSave();
     });
     queryInput.addEventListener('keydown', function(e){
       if (e.key === 'Enter'){ e.preventDefault(); resolveCompetitor(); }
     });
     queryInput.addEventListener('blur', function(){ resolveCompetitor(); });
+
+    // Restore a saved-but-unresolved competitor query on load, the same way
+    // typing it in and tabbing away would resolve it live.
+    if (state.competitors[i].query.trim()) resolveCompetitor();
   });
 
   // ---------- rail: your channel (resolved live, same as a competitor) ----------
   var myChannelInputEl = document.getElementById('myChannelInput');
+  myChannelInputEl.value = state.myChannel.query;
   var myChannelHintEl = document.getElementById('myChannelHint');
   function renderMyChannelHint(){
     var c = state.myChannel;
@@ -1332,8 +1508,24 @@
       myChannelHintEl.textContent = 'Looking up channel…';
       myChannelHintEl.setAttribute('data-tone','info');
     } else if (c.status === 'ok'){
-      myChannelHintEl.textContent = 'Showing as: ' + c.name;
-      myChannelHintEl.setAttribute('data-tone','ok');
+      if (state.useLiveVideo){
+        if (c.videoStatus === 'loading'){
+          myChannelHintEl.textContent = 'Showing as: ' + c.name + ' — looking up latest video…';
+          myChannelHintEl.setAttribute('data-tone','info');
+        } else if (c.video){
+          myChannelHintEl.textContent = 'Showing as: ' + c.name + ' — latest: "' + c.video.title + '"';
+          myChannelHintEl.setAttribute('data-tone','ok');
+        } else if (c.videoStatus === 'error'){
+          myChannelHintEl.textContent = c.videoError || 'Could not load latest video';
+          myChannelHintEl.setAttribute('data-tone','error');
+        } else {
+          myChannelHintEl.textContent = 'Showing as: ' + c.name;
+          myChannelHintEl.setAttribute('data-tone','ok');
+        }
+      } else {
+        myChannelHintEl.textContent = 'Showing as: ' + c.name;
+        myChannelHintEl.setAttribute('data-tone','ok');
+      }
     } else if (c.status === 'error'){
       myChannelHintEl.textContent = c.error;
       myChannelHintEl.setAttribute('data-tone','error');
@@ -1341,6 +1533,39 @@
       myChannelHintEl.textContent = '';
       myChannelHintEl.removeAttribute('data-tone');
     }
+  }
+  // Fetches (or refetches) just the latest-video half, reusing an
+  // already-resolved channelId/uploadsPlaylistId — used when the "use most
+  // recent video" toggle turns on for a channel that's already resolved, so
+  // it doesn't need to re-resolve the channel from scratch.
+  function fetchMyChannelLatestVideo(){
+    var transport = resolveTransport();
+    if (!transport || !state.myChannel.channelId) return;
+    var myToken = ++state.myChannel.videoToken;
+    state.myChannel.videoStatus = 'loading';
+    state.myChannel.videoError = '';
+    renderMyChannelHint();
+    fetchLatestLongFormVideoForChannel(transport, {
+      channelId: state.myChannel.channelId,
+      uploadsPlaylistId: state.myChannel.uploadsPlaylistId,
+      title: state.myChannel.name
+    }).then(function(video){
+      if (myToken !== state.myChannel.videoToken) return;
+      state.myChannel.video = video;
+      state.myChannel.videoStatus = 'ok';
+      state.myChannel.videoError = '';
+      renderMyChannelHint();
+      buildCombined();
+      render();
+    }).catch(function(err){
+      if (myToken !== state.myChannel.videoToken) return;
+      state.myChannel.video = null;
+      state.myChannel.videoStatus = 'error';
+      state.myChannel.videoError = (err && err.message) || 'Could not load latest video';
+      renderMyChannelHint();
+      buildCombined();
+      render();
+    });
   }
   function resolveMyChannel(){
     var query = state.myChannel.query.trim();
@@ -1350,7 +1575,13 @@
       state.myChannel.error = '';
       state.myChannel.name = 'ThumbLab';
       state.myChannel.avatarUrl = null;
+      state.myChannel.channelId = null;
+      state.myChannel.uploadsPlaylistId = null;
+      state.myChannel.video = null;
+      state.myChannel.videoStatus = 'idle';
+      state.myChannel.videoError = '';
       renderMyChannelHint();
+      buildCombined();
       render();
       return;
     }
@@ -1367,38 +1598,84 @@
     renderMyChannelHint();
     resolveChannelId(transport, query).then(function(chan){
       return fetchChannelAvatars(transport, [chan.channelId]).then(function(avatarMap){
-        return { title: chan.title, avatarUrl: avatarMap[chan.channelId] || null };
+        return { chan: chan, avatarUrl: avatarMap[chan.channelId] || null };
       });
     }).then(function(result){
       if (myToken !== state.myChannel.token) return;
       state.myChannel.status = 'ok';
-      state.myChannel.name = result.title || query;
+      state.myChannel.name = result.chan.title || query;
       state.myChannel.avatarUrl = result.avatarUrl;
+      state.myChannel.channelId = result.chan.channelId;
+      state.myChannel.uploadsPlaylistId = result.chan.uploadsPlaylistId;
       state.myChannel.error = '';
+      state.myChannel.video = null;
+      state.myChannel.videoStatus = 'idle';
+      state.myChannel.videoError = '';
       renderMyChannelHint();
+      buildCombined();
       render();
+      if (state.useLiveVideo) fetchMyChannelLatestVideo();
     }).catch(function(err){
       if (myToken !== state.myChannel.token) return;
       state.myChannel.status = 'error';
       state.myChannel.error = (err && err.message) || 'Could not find that channel';
+      state.myChannel.channelId = null;
+      state.myChannel.uploadsPlaylistId = null;
+      state.myChannel.video = null;
       renderMyChannelHint();
+      buildCombined();
       render();
     });
   }
   myChannelInputEl.addEventListener('input', function(e){
     state.myChannel.query = e.target.value;
+    scheduleSave();
   });
   myChannelInputEl.addEventListener('keydown', function(e){
     if (e.key === 'Enter'){ e.preventDefault(); resolveMyChannel(); }
   });
   myChannelInputEl.addEventListener('blur', function(){ resolveMyChannel(); });
 
+  // ---------- rail: "use most recent video" toggle ----------
+  var thumbSlotsHintEl = document.getElementById('thumbSlotsHint');
+  function updateThumbSlotsUI(){
+    thumbSlotsEl.classList.toggle('is-disabled', state.useLiveVideo);
+    if (state.useLiveVideo){
+      thumbSlotsHintEl.textContent = 'Thumbnail testing is off — showing your channel’s most recent long-form video instead.';
+      thumbSlotsHintEl.setAttribute('data-tone', 'info');
+    } else {
+      thumbSlotsHintEl.textContent = 'You can drag and drop images too.';
+      thumbSlotsHintEl.removeAttribute('data-tone');
+    }
+  }
+  var useLiveVideoToggleEl = document.getElementById('useLiveVideoToggle');
+  useLiveVideoToggleEl.checked = state.useLiveVideo;
+  updateThumbSlotsUI();
+  useLiveVideoToggleEl.addEventListener('change', function(e){
+    state.useLiveVideo = e.target.checked;
+    updateThumbSlotsUI();
+    if (state.useLiveVideo){
+      if (state.myChannel.channelId) fetchMyChannelLatestVideo();
+      else if (state.myChannel.query.trim()) resolveMyChannel();
+    }
+    renderMyChannelHint();
+    buildCombined();
+    render();
+  });
+
+  // Restore a saved-but-unresolved channel query on load, same as typing it
+  // in and tabbing away would. This also kicks off the latest-video fetch
+  // above if useLiveVideo was saved as on.
+  if (state.myChannel.query.trim()) resolveMyChannel();
+
   // ---------- rail: text fields ----------
-  document.getElementById('searchInput').addEventListener('input', function(e){
+  var searchInputEl = document.getElementById('searchInput');
+  searchInputEl.value = state.query;
+  searchInputEl.addEventListener('input', function(e){
     state.query = e.target.value;
     render();
   });
-  document.getElementById('searchInput').addEventListener('keydown', function(e){
+  searchInputEl.addEventListener('keydown', function(e){
     if (e.key === 'Enter'){ e.preventDefault(); refreshContent(); }
   });
   document.getElementById('searchGoBtn').addEventListener('click', function(){ refreshContent(); });
@@ -1418,6 +1695,17 @@
       });
     });
   }
+  // Programmatically marks one button active without simulating a click —
+  // used to reflect restored/guessed state on load, where nothing was
+  // actually clicked.
+  function syncSegmented(id, value){
+    var el = document.getElementById(id);
+    el.querySelectorAll('.segmented__btn').forEach(function(b){
+      var active = b.getAttribute('data-value') === value;
+      b.classList.toggle('is-active', active);
+      b.setAttribute('aria-checked', active ? 'true' : 'false');
+    });
+  }
   wireSegmented('deviceSeg', function(v){ state.device = v; render(); });
   // One switch drives both worlds — the console chrome and the simulated
   // YouTube screen — since in practice people want a single "dark mode"
@@ -1430,23 +1718,29 @@
     refreshContent();
   });
 
-  // Default the Device toggle to match how wide the visitor's own browser is
-  // on load, so someone opening this on a phone or tablet lands on a preview
-  // sized for them instead of a squeezed Desktop simulation. Runs once at
-  // startup only — switching the toggle by hand afterward always wins, this
-  // never re-guesses on resize.
-  (function autoPickDevice(){
-    var w = window.innerWidth;
-    var guess = w <= 640 ? 'mobile' : (w <= 900 ? 'tablet' : 'desktop');
-    if (guess === 'desktop') return;
-    state.device = guess;
-    var seg = document.getElementById('deviceSeg');
-    seg.querySelectorAll('.segmented__btn').forEach(function(b){
-      var active = b.getAttribute('data-value') === guess;
-      b.classList.toggle('is-active', active);
-      b.setAttribute('aria-checked', active ? 'true' : 'false');
-    });
-  })();
+  // Reflect restored/default preview + theme choices in the segmented
+  // controls' DOM state (harmless no-op when they already match the
+  // hardcoded HTML defaults).
+  syncSegmented('themeSeg', state.uiTheme);
+  syncSegmented('previewSeg', state.preview);
+  document.getElementById('searchQueryPanel').classList.toggle('is-hidden', state.preview !== 'search');
+
+  // The Device toggle: a saved manual choice always wins on refresh. Only
+  // when nothing was saved yet does it default to matching how wide the
+  // visitor's own browser is on load, so someone opening this on a phone or
+  // tablet for the first time lands on a preview sized for them instead of a
+  // squeezed Desktop simulation. Either way this runs once at startup only —
+  // switching the toggle by hand afterward always wins, and it never
+  // re-guesses on resize.
+  if (deviceRestoredFromStorage){
+    syncSegmented('deviceSeg', state.device);
+  } else {
+    var guessedDevice = window.innerWidth <= 640 ? 'mobile' : (window.innerWidth <= 900 ? 'tablet' : 'desktop');
+    if (guessedDevice !== 'desktop'){
+      state.device = guessedDevice;
+      syncSegmented('deviceSeg', guessedDevice);
+    }
+  }
 
   // ---------- rail: actions ----------
   document.getElementById('refreshBtn').addEventListener('click', function(){ refreshContent(); });
@@ -1550,6 +1844,13 @@
       var v = state.myVariants[item.index] || {};
       return v.src ? ('<img class="yt-card__thumb" src="' + v.src + '" alt="">') : '';
     }
+    if (item.type === 'mine-live'){
+      var mv = state.myChannel.video;
+      if (!mv) return '';
+      return mv.thumbUrl
+        ? ('<img class="yt-card__thumb" src="' + mv.thumbUrl + '" alt="">')
+        : '<div class="yt-card__thumb-fill" style="background:linear-gradient(135deg,#3a3d46,#22242b)"><span>?</span></div>';
+    }
     if (item.type === 'competitor'){
       var comp = state.competitors[item.index] || {};
       var cv = comp.video;
@@ -1579,6 +1880,19 @@
         duration: randInt(3,22) + ':' + String(randInt(0,59)).padStart(2,'0'),
         avatar: avatarInnerHtml(state.myChannel.avatarUrl, initialsOf(state.myChannel.name), '#3f4148'),
         desc: 'This is your uploaded thumbnail, shown among the surrounding videos so you can see how it holds up.'
+      };
+    }
+    if (item.type === 'mine-live'){
+      var mv = state.myChannel.video || {};
+      var mChannel = mv.channel || state.myChannel.name;
+      return {
+        title: mv.title || 'Your Video',
+        channel: mChannel,
+        views: mv.views || '',
+        age: mv.age || '',
+        duration: mv.duration || '',
+        avatar: avatarInnerHtml(mv.avatarUrl || state.myChannel.avatarUrl, initialsOf(mChannel), '#3f4148'),
+        desc: mv.desc || 'Your channel’s most recent long-form upload, pulled live from YouTube.'
       };
     }
     if (item.type === 'competitor'){
@@ -1679,6 +1993,7 @@
     } else {
       renderGrid();
     }
+    scheduleSave();
   }
 
   refreshContent();
