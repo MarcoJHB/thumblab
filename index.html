@@ -124,8 +124,43 @@
     grid-template-columns:19rem 1fr;
     min-height:0;
   }
+  /* Below this width the rail and the simulated YouTube screen stack instead
+     of sitting side by side. On desktop, .lab is pinned to exactly one
+     viewport tall and the rail / device screen each scroll internally within
+     that fixed height — that works because there's a whole sidebar's worth
+     of horizontal room to keep the YouTube preview visible at all times.
+     Stacked, that same fixed-height-with-internal-scrollbars approach turns
+     into two cramped, independently-scrolling boxes with content hidden
+     above/below the fold and no visual cue that either one scrolls. So here
+     the whole height/overflow chain switches to normal document flow —
+     .lab grows with its content instead of being clipped to 100vh, and the
+     page itself scrolls, the way a visitor's phone or tablet already expects. */
   @media (max-width:900px){
-    .lab__body{grid-template-columns:1fr;}
+    .lab{height:auto;min-height:100vh;}
+    .lab__body{
+      grid-template-columns:1fr;
+      display:flex;
+      flex-direction:column;
+      min-height:0;
+    }
+    .rail{
+      max-height:none;
+      overflow-y:visible;
+      border-right:none;
+      border-bottom:1px solid var(--border);
+    }
+    .bench{min-height:0;overflow:visible;}
+    .device{min-height:0;}
+    .device__screen{
+      flex:none;
+      min-height:26rem;
+      max-height:none;
+      overflow-y:visible;
+    }
+  }
+  @media (max-width:480px){
+    .lab__header{padding:.9rem 1rem;gap:.45rem;}
+    .rail{padding:1.1rem .9rem 1.75rem;}
   }
 
   /* ---------- rail / control console ---------- */
@@ -499,9 +534,6 @@
   .yt-row__channel-name{font-size:.82rem;color:var(--yt-text-secondary);}
   .yt-row__desc{font-size:.85rem;color:var(--yt-text-secondary);line-height:1.5;}
 
-  @media (max-width:640px){
-    .rail{border-right:none;border-bottom:1px solid var(--border);}
-  }
 </style>
 </head>
 <body>
@@ -1397,6 +1429,24 @@
     document.getElementById('searchQueryPanel').classList.toggle('is-hidden', v !== 'search');
     refreshContent();
   });
+
+  // Default the Device toggle to match how wide the visitor's own browser is
+  // on load, so someone opening this on a phone or tablet lands on a preview
+  // sized for them instead of a squeezed Desktop simulation. Runs once at
+  // startup only — switching the toggle by hand afterward always wins, this
+  // never re-guesses on resize.
+  (function autoPickDevice(){
+    var w = window.innerWidth;
+    var guess = w <= 640 ? 'mobile' : (w <= 900 ? 'tablet' : 'desktop');
+    if (guess === 'desktop') return;
+    state.device = guess;
+    var seg = document.getElementById('deviceSeg');
+    seg.querySelectorAll('.segmented__btn').forEach(function(b){
+      var active = b.getAttribute('data-value') === guess;
+      b.classList.toggle('is-active', active);
+      b.setAttribute('aria-checked', active ? 'true' : 'false');
+    });
+  })();
 
   // ---------- rail: actions ----------
   document.getElementById('refreshBtn').addEventListener('click', function(){ refreshContent(); });
