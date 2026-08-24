@@ -827,6 +827,16 @@
     if (h > 0) return h + ':' + String(mi).padStart(2,'0') + ':' + String(s).padStart(2,'0');
     return mi + ':' + String(s).padStart(2,'0');
   }
+  // Same ISO-8601 duration, as total seconds (null if unparseable) — used to
+  // filter out YouTube Shorts, which are capped at 3 minutes. A few seconds
+  // of buffer avoids edge-of-boundary false negatives.
+  function durationSeconds(iso){
+    var m = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso || '');
+    if (!m) return null;
+    var h = parseInt(m[1] || '0', 10), mi = parseInt(m[2] || '0', 10), s = parseInt(m[3] || '0', 10);
+    return h * 3600 + mi * 60 + s;
+  }
+  var MAX_SHORT_SECONDS = 183;
   function fetchChannelAvatars(transport, ids){
     ids = uniq(ids.filter(Boolean));
     if (!ids.length) return Promise.resolve({});
@@ -842,10 +852,19 @@
       .catch(function(){ return {}; });
   }
   function fetchHomeVideos(transport, categoryApiId){
-    var params = { part:'snippet,statistics,contentDetails', chart:'mostPopular', regionCode:'US', maxResults:'24' };
+    // maxResults is pulled up to the API max (50, same 1-unit quota cost as
+    // any other value) so there's still a full grid left after Shorts are
+    // filtered out below.
+    var params = { part:'snippet,statistics,contentDetails', chart:'mostPopular', regionCode:'US', maxResults:'50' };
     if (categoryApiId) params.videoCategoryId = categoryApiId;
     return ytFetch('videos', params, transport).then(function(data){
-      var items = data.items || [];
+      // This is meant to read like YouTube's real long-form home page, so
+      // Shorts (capped at 3 minutes, and shown letterboxed/portrait rather
+      // than as a normal landscape card) are filtered out here.
+      var items = (data.items || []).filter(function(it){
+        var secs = durationSeconds(it.contentDetails && it.contentDetails.duration);
+        return secs === null || secs > MAX_SHORT_SECONDS;
+      });
       if (!items.length) throw new Error('No trending videos returned for this category');
       var channelIds = items.map(function(it){ return it.snippet.channelId; });
       return fetchChannelAvatars(transport, channelIds).then(function(avatarMap){
@@ -961,20 +980,41 @@
       });
     });
   }
-  // The channel's single most recent public upload, as a card-ready video.
+  // The channel's most recent public *long-form* upload, as a card-ready
+  // video. Pulls a small window of recent uploads (instead of just the
+  // single latest) so a channel that posts Shorts more often than long-form
+  // videos still surfaces its latest long-form one here, rather than a Short.
   function fetchCompetitorLatestVideo(transport, rawQuery){
     return resolveChannelId(transport, rawQuery).then(function(chan){
-      return ytFetch('playlistItems', { part:'snippet', playlistId: chan.uploadsPlaylistId, maxResults:'1' }, transport).then(function(data){
-        var item = (data.items || [])[0];
-        if (!item) throw new Error('"' + chan.title + '" has no public uploads');
-        var videoId = item.snippet && item.snippet.resourceId && item.snippet.resourceId.videoId;
-        if (!videoId) throw new Error('"' + chan.title + '" has no public uploads');
+      return ytFetch('playlistItems', { part:'snippet', playlistId: chan.uploadsPlaylistId, maxResults:'15' }, transport).then(function(data){
+        var items = (data.items || []).filter(function(it){
+          return it.snippet && it.snippet.resourceId && it.snippet.resourceId.videoId;
+        });
+        if (!items.length) throw new Error('"' + chan.title + '" has no public uploads');
+        var videoIds = items.map(function(it){ return it.snippet.resourceId.videoId; });
         return Promise.all([
-          ytFetch('videos', { part:'statistics,contentDetails', id: videoId }, transport),
+          ytFetch('videos', { part:'statistics,contentDetails', id: videoIds.join(',') }, transport),
           fetchChannelAvatars(transport, [chan.channelId])
         ]).then(function(res){
-          var vItem = (res[0].items || [])[0] || {};
+          var statsMap = {};
+          (res[0].items || []).forEach(function(it){ statsMap[it.id] = it; });
           var avatarMap = res[1];
+          // Uploads playlists are newest-first: walk in that order and use
+          // the first one that isn't a Short.
+          var item = null, vItem = null;
+          for (var i = 0; i < items.length; i++){
+            var videoId = items[i].snippet.resourceId.videoId;
+            var stats = statsMap[videoId];
+            if (!stats) continue;
+            var secs = durationSeconds(stats.contentDetails && stats.contentDetails.duration);
+            if (secs === null || secs > MAX_SHORT_SECONDS){ item = items[i]; vItem = stats; break; }
+          }
+          if (!item){
+            // Every recent upload in the window was a Short — fall back to
+            // the single most recent one rather than showing an error.
+            item = items[0];
+            vItem = statsMap[item.snippet.resourceId.videoId] || {};
+          }
           return {
             title: item.snippet.title,
             channel: chan.title || item.snippet.channelTitle,
