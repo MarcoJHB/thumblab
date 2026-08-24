@@ -556,7 +556,6 @@
 
       <section class="panel">
         <h2 class="panel__label">Competitor videos · up to 3 <span class="panel__label-optional">(optional)</span></h2>
-        <p class="rail__hint" style="margin-bottom:.6rem;">Pulled automatically from YouTube — each channel's latest upload.</p>
         <div class="variants" id="competitorSlots"></div>
       </section>
 
@@ -571,9 +570,9 @@
         <button type="button" class="segmented__btn is-active" data-value="dark" role="radio" aria-checked="true">Dark</button>
       </div>
 
-      <p class="rail__note">Everything renders locally in your browser. Nothing you upload is sent anywhere. Live video requests go through this site's private proxy — no API key is ever visible to you or anyone else viewing this page.</p>
+      <p class="rail__note">Everything renders locally in your browser. Nothing you upload is sent anywhere.</p>
 
-      <p class="rail__credit">Created by Marco from Easily Distracted Games<br>&copy; 2026</p>
+      <p class="rail__credit">Created by Marco from <a href="https://www.youtube.com/@easilydistractedgames" target="_blank" rel="noopener">Easily Distracted Games</a><br>&copy; 2026</p>
     </aside>
 
     <main class="bench">
@@ -808,7 +807,7 @@
   }
   function pickThumb(thumbs){
     if (!thumbs) return '';
-    return ((thumbs.medium || thumbs.high || thumbs.default || {})).url || '';
+    return ((thumbs.maxres || thumbs.standard || thumbs.high || thumbs.medium || thumbs.default || {})).url || '';
   }
   function timeAgo(iso){
     var then = new Date(iso).getTime();
