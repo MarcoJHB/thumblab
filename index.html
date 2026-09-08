@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ThumbLab — YouTube Thumbnail Preview Console</title>
 <meta name="description" content="A realistic YouTube home/search feed with your thumbnail variants and live competitor uploads dropped in, powered by real YouTube data through a private proxy, across desktop, tablet, and mobile, in light or dark mode.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" rx="6" fill="%2322c55e"/><g transform="translate(3.6,3.6) scale(0.7)"><path fill="%2307220f" d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-1.91l-.01-.01L23 10z"/></g></svg>">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Roboto:wght@400;500;700&display=swap');
 
@@ -452,6 +453,25 @@
   }
   .device[data-device="tablet"] .device__screen,
   .device[data-device="mobile"] .device__screen{border-radius:0 0 1.3rem 1.3rem;}
+  /* The tablet/mobile frames are styled like an actual device (notch bezel,
+     rounded corners) rather than a browser chrome window, so a generic OS
+     scrollbar breaks the illusion — the real YouTube app has none. Desktop
+     keeps its native scrollbar on purpose: that frame already has a browser-
+     style URL bar above it, where a scrollbar reads as normal. */
+  .device[data-device="tablet"] .device__screen,
+  .device[data-device="mobile"] .device__screen{
+    scrollbar-width:none;
+    -ms-overflow-style:none;
+  }
+  .device[data-device="tablet"] .device__screen::-webkit-scrollbar,
+  .device[data-device="mobile"] .device__screen::-webkit-scrollbar{
+    display:none;
+  }
+  /* The horizontally-scrolling category-chip row never needs a visible
+     scrollbar either, on any device — the real YouTube UI just lets you
+     drag/swipe it. */
+  .yt-chips{scrollbar-width:none;-ms-overflow-style:none;}
+  .yt-chips::-webkit-scrollbar{display:none;}
 
   .yt{font-family:'Roboto','Segoe UI',Arial,sans-serif;color:var(--yt-text);}
 
@@ -493,7 +513,8 @@
     color:var(--yt-text-secondary);
   }
   .yt-top__mic svg{width:.9rem;height:.9rem;}
-  .yt-top__right{margin-left:auto;flex-shrink:0;}
+  .yt-top__right{margin-left:auto;flex-shrink:0;display:flex;align-items:center;gap:1rem;}
+  .yt-top__search-icon-btn svg{width:1.15rem;height:1.15rem;}
   .yt-avatar{
     width:1.9rem;height:1.9rem;border-radius:50%;
     display:flex;align-items:center;justify-content:center;
@@ -584,6 +605,10 @@
           <input type="checkbox" id="useLiveVideoToggle" class="checkbox-row__input">
           <span>Use my most recent video instead of testing thumbnails</span>
         </label>
+        <label class="checkbox-row" for="onlyMineToggle">
+          <input type="checkbox" id="onlyMineToggle" class="checkbox-row__input">
+          <span>Show only my thumbnails</span>
+        </label>
       </section>
 
       <section class="panel">
@@ -629,7 +654,7 @@
 
       <p class="rail__note">Everything renders locally in your browser. Nothing you upload is sent anywhere.</p>
 
-      <p class="rail__credit">Created by Marco from <a href="https://www.youtube.com/@easilydistractedgames" target="_blank" rel="noopener">Easily Distracted Games</a><br>&copy; 2026</p>
+      <p class="rail__credit">Created with ❤️ by <a href="https://discord.com/users/337640971472994314" target="_blank" rel="noopener">MarcoEDG</a><br>&copy; 2026</p>
     </aside>
 
     <main class="bench">
@@ -885,15 +910,19 @@
     return mi + ':' + String(s).padStart(2,'0');
   }
   // Same ISO-8601 duration, as total seconds (null if unparseable) — used to
-  // filter out YouTube Shorts, which are capped at 3 minutes. A few seconds
-  // of buffer avoids edge-of-boundary false negatives.
+  // keep only genuinely long-form videos (this also excludes every YouTube
+  // Short, which are capped at 3 minutes, well under the cutoff below).
   function durationSeconds(iso){
     var m = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso || '');
     if (!m) return null;
     var h = parseInt(m[1] || '0', 10), mi = parseInt(m[2] || '0', 10), s = parseInt(m[3] || '0', 10);
     return h * 3600 + mi * 60 + s;
   }
-  var MAX_SHORT_SECONDS = 183;
+  // Only videos longer than this are considered "long-form" and kept in the
+  // home feed, search results, and channel/competitor pulls — 8 minutes, so
+  // short music videos and other sub-8-minute uploads are excluded too, not
+  // just Shorts.
+  var MIN_LONG_FORM_SECONDS = 8 * 60;
   function fetchChannelAvatars(transport, ids){
     ids = uniq(ids.filter(Boolean));
     if (!ids.length) return Promise.resolve({});
@@ -916,13 +945,13 @@
     if (categoryApiId) params.videoCategoryId = categoryApiId;
     return ytFetch('videos', params, transport).then(function(data){
       // This is meant to read like YouTube's real long-form home page, so
-      // Shorts (capped at 3 minutes, and shown letterboxed/portrait rather
-      // than as a normal landscape card) are filtered out here.
+      // anything 8 minutes or under — Shorts included, but also short
+      // music videos and other quick uploads — is filtered out here.
       var items = (data.items || []).filter(function(it){
         var secs = durationSeconds(it.contentDetails && it.contentDetails.duration);
-        return secs === null || secs > MAX_SHORT_SECONDS;
+        return secs === null || secs > MIN_LONG_FORM_SECONDS;
       });
-      if (!items.length) throw new Error('No trending videos returned for this category');
+      if (!items.length) throw new Error('No videos longer than 8 minutes returned for this category');
       var channelIds = items.map(function(it){ return it.snippet.channelId; });
       return fetchChannelAvatars(transport, channelIds).then(function(avatarMap){
         return items.map(function(it){
@@ -976,8 +1005,16 @@
         (res[0].items || []).forEach(function(it){ statsMap[it.id] = it; });
         var avatarMap = res[1];
         var isLive = tabKey === 'live';
-        return items.map(function(it){
+        // Same long-form-only rule as the home feed, applied to the general
+        // "All"/"Videos" search tabs so short music videos and other quick
+        // uploads don't sneak into search results either. The dedicated
+        // "Shorts" tab is exempt on purpose — that's the one place Shorts
+        // are supposed to show up — and "Live" streams don't have a fixed
+        // duration to filter on.
+        var filterLongForm = tabKey === 'all' || tabKey === 'videos';
+        var mapped = items.map(function(it){
           var stats = statsMap[it.id.videoId] || {};
+          var secs = durationSeconds(stats.contentDetails && stats.contentDetails.duration);
           return {
             title: it.snippet.title,
             channel: it.snippet.channelTitle,
@@ -986,9 +1023,16 @@
             duration: isLive ? '' : parseISODuration(stats.contentDetails && stats.contentDetails.duration),
             thumbUrl: pickThumb(it.snippet.thumbnails),
             avatarUrl: avatarMap[it.snippet.channelId] || null,
-            desc: (it.snippet.description || '').slice(0,160)
+            desc: (it.snippet.description || '').slice(0,160),
+            _secs: secs
           };
         });
+        if (filterLongForm){
+          mapped = mapped.filter(function(v){ return v._secs === null || v._secs > MIN_LONG_FORM_SECONDS; });
+        }
+        mapped.forEach(function(v){ delete v._secs; });
+        if (!mapped.length) throw new Error('No results for "' + q + '" longer than 8 minutes');
+        return mapped;
       });
     });
   }
@@ -1060,18 +1104,18 @@
         (res[0].items || []).forEach(function(it){ statsMap[it.id] = it; });
         var avatarMap = res[1];
         // Uploads playlists are newest-first: walk in that order and use
-        // the first one that isn't a Short.
+        // the first one longer than 8 minutes.
         var item = null, vItem = null;
         for (var i = 0; i < items.length; i++){
           var videoId = items[i].snippet.resourceId.videoId;
           var stats = statsMap[videoId];
           if (!stats) continue;
           var secs = durationSeconds(stats.contentDetails && stats.contentDetails.duration);
-          if (secs === null || secs > MAX_SHORT_SECONDS){ item = items[i]; vItem = stats; break; }
+          if (secs === null || secs > MIN_LONG_FORM_SECONDS){ item = items[i]; vItem = stats; break; }
         }
         if (!item){
-          // Every recent upload in the window was a Short — fall back to
-          // the single most recent one rather than showing an error.
+          // Every recent upload in the window was 8 minutes or under —
+          // fall back to the single most recent one rather than showing an error.
           item = items[0];
           vItem = statsMap[item.snippet.resourceId.videoId] || {};
         }
@@ -1128,6 +1172,12 @@
     // for testing how an already-published video reads next to competitors,
     // rather than testing unpublished thumbnail variants.
     useLiveVideo: false,
+    // When true, competitor cards (and the surrounding regular/synthetic
+    // feed) are left out of the combined feed entirely, so only your own
+    // variants (or your live video, if useLiveVideo is also on) render —
+    // a clean side-by-side of just your own options with no other channels
+    // in the way.
+    onlyMine: false,
     category: 'all',
     searchTab: 'all',
     liveStatus: 'idle',   // idle | loading | ok | error
@@ -1176,6 +1226,7 @@
       category: state.category,
       searchTab: state.searchTab,
       useLiveVideo: state.useLiveVideo,
+      onlyMine: state.onlyMine,
       myChannelQuery: state.myChannel.query,
       myVariants: state.myVariants.map(function(v){ return { src: v.src, title: v.title }; }),
       competitorQueries: state.competitors.map(function(c){ return c.query; })
@@ -1192,6 +1243,7 @@
           v: payload.v, device: payload.device, preview: payload.preview,
           uiTheme: payload.uiTheme, ytTheme: payload.ytTheme, query: payload.query,
           category: payload.category, searchTab: payload.searchTab, useLiveVideo: payload.useLiveVideo,
+          onlyMine: payload.onlyMine,
           myChannelQuery: payload.myChannelQuery,
           myVariants: payload.myVariants.map(function(v){ return { src: null, title: v.title }; }),
           competitorQueries: payload.competitorQueries
@@ -1221,6 +1273,7 @@
     if (typeof saved.category === 'string') state.category = saved.category;
     if (typeof saved.searchTab === 'string') state.searchTab = saved.searchTab;
     if (typeof saved.useLiveVideo === 'boolean') state.useLiveVideo = saved.useLiveVideo;
+    if (typeof saved.onlyMine === 'boolean') state.onlyMine = saved.onlyMine;
     if (typeof saved.myChannelQuery === 'string') state.myChannel.query = saved.myChannelQuery;
     if (Array.isArray(saved.myVariants)){
       saved.myVariants.slice(0,3).forEach(function(v, i){
@@ -1251,9 +1304,6 @@
   // anywhere in a 24-item feed.
   var TOP_ZONE = 8;
   function buildCombined(){
-    var regular = state.pool.slice();
-    shuffle(regular);
-
     var priority = [];
     if (state.useLiveVideo){
       if (state.myChannel.video) priority.push({ type:'mine-live' });
@@ -1262,6 +1312,18 @@
         if (v.src) priority.push({ type:'mine', index:i });
       });
     }
+
+    // "Show only my thumbnails" — leave competitors and the surrounding
+    // feed out entirely so it's just your own options, side by side, with
+    // nothing else competing for attention.
+    if (state.onlyMine){
+      state.combined = priority;
+      return;
+    }
+
+    var regular = state.pool.slice();
+    shuffle(regular);
+
     state.competitors.forEach(function(c, i){
       if (c.video) priority.push({ type:'competitor', index:i });
     });
@@ -1663,6 +1725,15 @@
     render();
   });
 
+  // ---------- rail: "show only my thumbnails" toggle ----------
+  var onlyMineToggleEl = document.getElementById('onlyMineToggle');
+  onlyMineToggleEl.checked = state.onlyMine;
+  onlyMineToggleEl.addEventListener('change', function(e){
+    state.onlyMine = e.target.checked;
+    buildCombined();
+    render();
+  });
+
   // Restore a saved-but-unresolved channel query on load, same as typing it
   // in and tabbing away would. This also kicks off the latest-video fetch
   // above if useLiveVideo was saved as on.
@@ -1782,15 +1853,34 @@
 
   function renderTop(){
     var myAvatar = avatarInnerHtml(state.myChannel.avatarUrl, initialsOf(state.myChannel.name), '#3f4148');
-    var searchBoxHtml = state.preview === 'search'
-      ? '<div class="yt-top__search-box">' + escapeHtml(state.query || '') + '</div>'
-      : '<div class="yt-top__search-box" data-empty="true">Search</div>';
-
-    topEl.innerHTML =
+    var leftHtml =
       '<div class="yt-top__left">' +
         '<button class="yt-top__icon-btn" type="button">' + ICON.hamburger + '</button>' +
         '<div class="yt-top__logo"><span class="yt-top__logo-badge">' + ICON.play + '</span>YouTube</div>' +
-      '</div>' +
+      '</div>';
+
+    if (state.device === 'mobile'){
+      // The real YouTube mobile app doesn't keep a persistent text search
+      // box in the header — tapping the search icon opens a dedicated
+      // search screen. Matching that (instead of squeezing the full
+      // desktop-style box + mic into a 24.4rem-wide frame) is what fixes
+      // the query text truncating into unreadable fragments like "Sea…",
+      // and grouping the icon with the avatar on the right (both pushed
+      // over by the same margin-left:auto) is how the real app clusters
+      // them. The active query is still visible via the "Results for ..."
+      // line under the chips, exactly like the real app shows it.
+      topEl.innerHTML = leftHtml +
+        '<div class="yt-top__right">' +
+          '<button type="button" class="yt-top__icon-btn yt-top__search-icon-btn" aria-label="Search">' + ICON.search + '</button>' +
+          '<div class="yt-avatar">' + myAvatar + '</div>' +
+        '</div>';
+      return;
+    }
+
+    var searchBoxHtml = state.preview === 'search'
+      ? '<div class="yt-top__search-box">' + escapeHtml(state.query || '') + '</div>'
+      : '<div class="yt-top__search-box" data-empty="true">Search</div>';
+    topEl.innerHTML = leftHtml +
       '<div class="yt-top__search">' +
         searchBoxHtml +
         '<div class="yt-top__search-btn">' + ICON.search + '</div>' +
@@ -1832,6 +1922,11 @@
   }
 
   function emptyStateHtml(){
+    if (state.onlyMine){
+      return state.useLiveVideo
+        ? '<div class="yt-empty">Add your channel above to see your latest video here.</div>'
+        : '<div class="yt-empty">Upload a thumbnail variant above to see it here.</div>';
+    }
     if (state.preview === 'search' && !hasLiveTransport() && (state.searchTab === 'live' || state.searchTab === 'playlists')){
       var kind = state.searchTab === 'live' ? 'live streams' : 'playlists';
       return '<div class="yt-empty">Generated placeholders don’t include ' + kind + '. Real ' + kind + ' need the live proxy configured (see PROXY_URL).</div>';
@@ -1999,4 +2094,6 @@
   refreshContent();
 })();
 </script>
+
+</body>
 </html>
