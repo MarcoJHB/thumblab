@@ -241,6 +241,32 @@
 
   .variants{display:flex;flex-direction:column;gap:.75rem;}
   .variant__row{display:flex;gap:.55rem;align-items:stretch;}
+  /* Thumbnail-and-title rows (as opposed to the plain single-input rows
+     used for competitor/search fields) stack vertically — thumbnail on
+     top at a true 16:9, title underneath — instead of squeezing a tiny
+     thumbnail beside the title, so the preview actually reads like a real
+     video thumbnail rather than a cramped strip. */
+  .variant__row--thumb{flex-direction:column;gap:.5rem;}
+  /* Competitor rows: half the gap between rows of the thumbnail slots
+     above (this list can otherwise run noticeably longer for no real
+     reason — there's no thumbnail preview under each one, just a single
+     input). A permanently-reserved checkmark slot beside the input (kept
+     in the layout at all times, just faded out until a channel actually
+     resolves) shows accepted/not-accepted instead of echoing back the
+     video title — narrowing the input slightly to make room for it, on
+     purpose. */
+  #competitorSlots.variants{gap:.375rem;}
+  .variant__competitor-query{flex:1;min-width:0;width:auto;}
+  .field-check{
+    flex-shrink:0;
+    width:1.4rem;
+    display:flex;align-items:center;justify-content:center;
+    color:var(--accent);
+    opacity:0;
+    transition:opacity .12s ease;
+  }
+  .field-check svg{width:1rem;height:1rem;}
+  .field-check.is-visible{opacity:1;}
   /* A textarea, not an <input>, so a long title wraps onto multiple lines
      instead of scrolling out of view horizontally — the whole title stays
      visible while typing. Height is fixed (sized to fit the 100-character
@@ -253,8 +279,8 @@
      titles below) so what you type previews at the same size it'll
      actually render at, everywhere, at every screen width. */
   .variant__title{
-    flex:1;min-width:0;
-    height:9.5rem;
+    width:100%;
+    height:6.75rem;
     font-size:var(--title-font-size);
     font-family:inherit;
     line-height:1.35;
@@ -266,10 +292,14 @@
      uploaded thumbnails. */
   .variants.is-disabled{opacity:.45;pointer-events:none;}
 
+  /* True 16:9 (round 18 — was a squat 16:10 sitting in a fixed 5rem-wide
+     column beside the title; now it's the full rail width, on top, with
+     the title underneath, so it previews at the actual aspect ratio a
+     real YouTube thumbnail renders at). */
   .thumb-slot{
     position:relative;
-    width:5rem;flex-shrink:0;
-    aspect-ratio:16/10;
+    width:100%;
+    aspect-ratio:16/9;
     border-radius:var(--radius-sm);
     border:1.5px dashed var(--border);
     background:var(--surface-raised);
@@ -284,12 +314,12 @@
   .thumb-slot__label{
     position:absolute;inset:0;
     display:flex;flex-direction:column;align-items:center;justify-content:center;
-    gap:.15rem;
+    gap:.25rem;
     cursor:pointer;
     color:var(--text-faint);
   }
-  .thumb-slot__plus{font-size:1.1rem;font-weight:600;line-height:1;}
-  .thumb-slot__text{font-family:var(--font-mono);font-size:.62rem;letter-spacing:.05em;text-transform:uppercase;}
+  .thumb-slot__plus{font-size:1.7rem;font-weight:600;line-height:1;}
+  .thumb-slot__text{font-family:var(--font-mono);font-size:.72rem;letter-spacing:.05em;text-transform:uppercase;}
   .thumb-slot__input:focus-visible + .thumb-slot__label{outline:2px solid var(--accent);outline-offset:-2px;}
   .thumb-slot__img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
   .thumb-slot__remove{
@@ -486,8 +516,10 @@
   /* The tablet/mobile frames are styled like an actual device (notch bezel,
      rounded corners) rather than a browser chrome window, so a generic OS
      scrollbar breaks the illusion — the real YouTube app has none. Desktop
-     keeps its native scrollbar on purpose: that frame already has a browser-
-     style URL bar above it, where a scrollbar reads as normal. */
+     keeps *a* scrollbar (that frame has a browser-style URL bar above it,
+     where a scrollbar reads as normal) but it's the same minimal,
+     auto-hiding style YouTube's own desktop site uses, not the chunky OS
+     default — see the "minimal scrollbar" block below. */
   .device[data-device="tablet"] .device__screen,
   .device[data-device="mobile"] .device__screen{
     scrollbar-width:none;
@@ -496,6 +528,51 @@
   .device[data-device="tablet"] .device__screen::-webkit-scrollbar,
   .device[data-device="mobile"] .device__screen::-webkit-scrollbar{
     display:none;
+  }
+  /* Minimal, YouTube-style scrollbar for the two areas that actually
+     scroll on desktop — the rail and the simulated screen. Thin, and
+     transparent (invisible) until you're hovering over that area or have
+     just scrolled it, rather than a permanently-visible OS scrollbar
+     sitting there the whole time. Firefox gets the equivalent via
+     `scrollbar-color`; Chromium/WebKit (what most visitors and this
+     project's own tests use) via the `::-webkit-scrollbar` pseudo-
+     elements, which is why both are declared. `.is-scrolling` is toggled
+     by `wireScrollbarFade()` in the script below, faded back out ~900ms
+     after the last scroll event, so the thumb also reveals itself briefly
+     during a scroll started from a keyboard or trackpad gesture that
+     never puts the mouse over the element at all. */
+  .rail,
+  .device[data-device="desktop"] .device__screen{
+    scrollbar-width:thin;
+    scrollbar-color:transparent transparent;
+  }
+  .rail:hover,
+  .rail:focus-within,
+  .rail.is-scrolling,
+  .device[data-device="desktop"] .device__screen:hover,
+  .device[data-device="desktop"] .device__screen.is-scrolling{
+    scrollbar-color:var(--text-faint) transparent;
+  }
+  .rail::-webkit-scrollbar,
+  .device[data-device="desktop"] .device__screen::-webkit-scrollbar{
+    width:8px;
+  }
+  .rail::-webkit-scrollbar-track,
+  .device[data-device="desktop"] .device__screen::-webkit-scrollbar-track{
+    background:transparent;
+  }
+  .rail::-webkit-scrollbar-thumb,
+  .device[data-device="desktop"] .device__screen::-webkit-scrollbar-thumb{
+    background-color:transparent;
+    border-radius:8px;
+    border:2px solid transparent;
+    background-clip:content-box;
+  }
+  .rail:hover::-webkit-scrollbar-thumb,
+  .rail.is-scrolling::-webkit-scrollbar-thumb,
+  .device[data-device="desktop"] .device__screen:hover::-webkit-scrollbar-thumb,
+  .device[data-device="desktop"] .device__screen.is-scrolling::-webkit-scrollbar-thumb{
+    background-color:var(--text-faint);
   }
   /* The horizontally-scrolling category-chip row never needs a visible
      scrollbar either, on any device — the real YouTube UI just lets you
@@ -747,7 +824,8 @@
     hamburger: '<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M3 6h18v2H3zM3 11h18v2H3zM3 16h18v2H3z"/></svg>',
     play: '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>',
     search: '<svg viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" d="M10.5 3a7.5 7.5 0 1 0 4.76 13.3l5.2 5.2 1.4-1.4-5.2-5.2A7.5 7.5 0 0 0 10.5 3z"/></svg>',
-    mic: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>'
+    mic: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>',
+    check: '<svg viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M4 12.5l5 5L20 6"/></svg>'
   };
 
   // Each topic carries a coarse category so both the generated-placeholder
@@ -1148,7 +1226,15 @@
   // can be reused both for competitors (resolved fresh each time) and for
   // "my channel" (resolved once, then reused whenever the latest-video
   // toggle needs a refetch, without re-resolving the channel every time).
-  function fetchLatestLongFormVideoForChannel(transport, chan){
+  // Up to `count` of the channel's most recent public *long-form* uploads,
+  // newest first, as card-ready videos. Pulls a small window of recent
+  // uploads (instead of just the latest `count`) so a channel that posts
+  // Shorts more often than long-form videos still surfaces its long-form
+  // ones here rather than a Short. Falls back to the single most recent
+  // upload (even if short) only when nothing in the window qualifies,
+  // rather than returning nothing.
+  function fetchLatestLongFormVideosForChannel(transport, chan, count){
+    count = count || 1;
     return ytFetch('playlistItems', { part:'snippet', playlistId: chan.uploadsPlaylistId, maxResults:'15' }, transport).then(function(data){
       var items = (data.items || []).filter(function(it){
         return it.snippet && it.snippet.resourceId && it.snippet.resourceId.videoId;
@@ -1162,38 +1248,48 @@
         var statsMap = {};
         (res[0].items || []).forEach(function(it){ statsMap[it.id] = it; });
         var avatarMap = res[1];
-        // Uploads playlists are newest-first: walk in that order and use
-        // the first one longer than 8 minutes.
-        var item = null, vItem = null;
-        for (var i = 0; i < items.length; i++){
+        // Uploads playlists are newest-first: walk in that order, collecting
+        // long-form ones until we have `count`.
+        var picked = [];
+        for (var i = 0; i < items.length && picked.length < count; i++){
           var videoId = items[i].snippet.resourceId.videoId;
           var stats = statsMap[videoId];
           if (!stats) continue;
           var secs = durationSeconds(stats.contentDetails && stats.contentDetails.duration);
-          if (secs === null || secs > MIN_LONG_FORM_SECONDS){ item = items[i]; vItem = stats; break; }
+          if (secs === null || secs > MIN_LONG_FORM_SECONDS) picked.push({ item: items[i], vItem: stats });
         }
-        if (!item){
+        if (!picked.length){
           // Every recent upload in the window was 8 minutes or under —
           // fall back to the single most recent one rather than showing an error.
-          item = items[0];
-          vItem = statsMap[item.snippet.resourceId.videoId] || {};
+          var fallbackId = items[0].snippet.resourceId.videoId;
+          picked.push({ item: items[0], vItem: statsMap[fallbackId] || {} });
         }
-        return {
-          title: item.snippet.title,
-          channel: chan.title || item.snippet.channelTitle,
-          views: formatViews(parseInt((vItem.statistics && vItem.statistics.viewCount) || '0', 10)),
-          age: timeAgo(item.snippet.publishedAt),
-          duration: parseISODuration(vItem.contentDetails && vItem.contentDetails.duration),
-          thumbUrl: pickThumb(item.snippet.thumbnails),
-          avatarUrl: avatarMap[chan.channelId] || null,
-          desc: (item.snippet.description || '').slice(0,160)
-        };
+        return picked.map(function(p){
+          var item = p.item, vItem = p.vItem;
+          return {
+            title: item.snippet.title,
+            channel: chan.title || item.snippet.channelTitle,
+            views: formatViews(parseInt((vItem.statistics && vItem.statistics.viewCount) || '0', 10)),
+            age: timeAgo(item.snippet.publishedAt),
+            duration: parseISODuration(vItem.contentDetails && vItem.contentDetails.duration),
+            thumbUrl: pickThumb(item.snippet.thumbnails),
+            avatarUrl: avatarMap[chan.channelId] || null,
+            desc: (item.snippet.description || '').slice(0,160)
+          };
+        });
       });
     });
   }
-  function fetchCompetitorLatestVideo(transport, rawQuery){
+  // Single-video convenience wrapper — used by "my channel"'s live-video
+  // toggle, which only ever needs the one latest long-form upload.
+  function fetchLatestLongFormVideoForChannel(transport, chan){
+    return fetchLatestLongFormVideosForChannel(transport, chan, 1).then(function(videos){
+      return videos[0];
+    });
+  }
+  function fetchCompetitorLatestVideos(transport, rawQuery, count){
     return resolveChannelId(transport, rawQuery).then(function(chan){
-      return fetchLatestLongFormVideoForChannel(transport, chan);
+      return fetchLatestLongFormVideosForChannel(transport, chan, count);
     });
   }
 
@@ -1247,12 +1343,14 @@
       { src: null, title: 'This Title is a 1/10 For Sure' }
     ],
     // Competitor videos are pulled live from YouTube by channel name/@handle
-    // — no uploads. status: idle | loading | ok | error. video holds the
-    // fetched card data (see fetchCompetitorLatestVideo) once status is 'ok'.
+    // — no uploads. status: idle | loading | ok | error. videos holds up to
+    // COMPETITOR_VIDEO_COUNT (2) fetched card-data entries (see
+    // fetchCompetitorLatestVideos) once status is 'ok' — both always render,
+    // pinned right next to your own thumbnails (see buildCombined).
     competitors: [
-      { query: '', status: 'idle', error: '', video: null, token: 0 },
-      { query: '', status: 'idle', error: '', video: null, token: 0 },
-      { query: '', status: 'idle', error: '', video: null, token: 0 }
+      { query: '', status: 'idle', error: '', videos: [], token: 0 },
+      { query: '', status: 'idle', error: '', videos: [], token: 0 },
+      { query: '', status: 'idle', error: '', videos: [], token: 0 }
     ],
     pool: [],
     combined: []
@@ -1357,8 +1455,9 @@
     state.pool = state.preview === 'home' ? regenerateSyntheticPool(state.category) : syntheticForSearch(state.searchTab);
   }
 
-  // Your own thumbnails and any competitor uploads are "priority" items:
-  // they get shuffled in among the top TOP_ZONE slots of the (separately
+  // Your own thumbnails and every resolved competitor's videos are
+  // "priority" items: together they land as one contiguous block inserted
+  // at a random point among the top TOP_ZONE slots of the (separately
   // shuffled) surrounding pool, so they land above the fold instead of
   // anywhere in a 24-item feed.
   var TOP_ZONE = 8;
@@ -1383,15 +1482,24 @@
     var regular = state.pool.slice();
     shuffle(regular);
 
+    // Every resolved competitor's up-to-2 latest long-form videos are
+    // appended right after your own thumbnails, in channel order — the
+    // whole block (your thumbnails plus every competitor's pair) moves and
+    // lands together as one contiguous run, always right next to your own
+    // uploads, rather than each video being shuffled in and landing
+    // somewhere unrelated to the others. Only *where* in the top zone that
+    // block lands is randomized (here, and again on "New videos"/"Shuffle
+    // order").
     state.competitors.forEach(function(c, i){
-      if (c.video) priority.push({ type:'competitor', index:i });
+      (c.videos || []).forEach(function(v, vi){
+        priority.push({ type:'competitor', index:i, videoIndex:vi });
+      });
     });
-    shuffle(priority);
 
-    priority.forEach(function(item){
+    if (priority.length){
       var at = randInt(0, Math.min(TOP_ZONE, regular.length));
-      regular.splice(at, 0, item);
-    });
+      regular.splice.apply(regular, [at, 0].concat(priority));
+    }
     state.combined = regular;
   }
 
@@ -1438,7 +1546,7 @@
     var variant = document.createElement('div');
     variant.className = 'variant';
     variant.innerHTML =
-      '<div class="variant__row">' +
+      '<div class="variant__row variant__row--thumb">' +
         '<div class="thumb-slot">' +
           '<input type="file" accept="image/*" id="thumbInput' + i + '" class="thumb-slot__input" hidden>' +
           '<label for="thumbInput' + i + '" class="thumb-slot__label' + (hasImg ? ' is-hidden' : '') + '">' +
@@ -1525,9 +1633,14 @@
 
   // ---------- rail: competitor slots ----------
   // Competitors are pulled live from YouTube by channel name/@handle/URL —
-  // each slot fetches that channel's single most recent public upload and
-  // drops it into the feed alongside your own thumbnails, no uploads needed.
+  // each slot fetches that channel's 2 most recent public long-form uploads
+  // and drops both into the feed alongside your own thumbnails, no uploads
+  // needed. A checkmark beside the input shows accepted instead of echoing
+  // the video title/channel back as text (round 18) — the input stays
+  // slightly narrower than a full-width field on purpose, to leave room
+  // for that checkmark without it overlapping the typed text.
   var COMPETITOR_LABELS = ['1','2','3'];
+  var COMPETITOR_VIDEO_COUNT = 2;
   var competitorSlotsEl = document.getElementById('competitorSlots');
   var competitorHintEls = [];
   COMPETITOR_LABELS.forEach(function(label, i){
@@ -1535,7 +1648,8 @@
     variant.className = 'variant';
     variant.innerHTML =
       '<div class="variant__row">' +
-        '<input type="text" class="field field--sm variant__competitor-query" maxlength="80" placeholder="Competitor ' + label + ': channel name, @handle, or URL">' +
+        '<input type="text" class="field field--sm variant__competitor-query" maxlength="80" placeholder="Channel name / handle">' +
+        '<span class="field-check" id="competitorCheck' + i + '" aria-hidden="true">' + ICON.check + '</span>' +
       '</div>' +
       '<p class="rail__hint rail__hint--tight" id="competitorHint' + i + '"></p>';
     competitorSlotsEl.appendChild(variant);
@@ -1543,16 +1657,20 @@
     var queryInput = variant.querySelector('.variant__competitor-query');
     queryInput.value = state.competitors[i].query;
     var hintEl = variant.querySelector('#competitorHint' + i);
+    var checkEl = variant.querySelector('#competitorCheck' + i);
     competitorHintEls[i] = hintEl;
 
     function renderHint(){
       var c = state.competitors[i];
+      checkEl.classList.toggle('is-visible', c.status === 'ok');
       if (c.status === 'loading'){
-        hintEl.textContent = 'Looking up latest upload…';
+        hintEl.textContent = 'Looking up latest uploads…';
         hintEl.setAttribute('data-tone','info');
       } else if (c.status === 'ok'){
-        hintEl.textContent = 'Showing: "' + c.video.title + '" — ' + c.video.channel;
-        hintEl.setAttribute('data-tone','ok');
+        // Accepted state is shown with the checkmark above, not text here —
+        // the video(s) themselves render directly in the feed.
+        hintEl.textContent = '';
+        hintEl.removeAttribute('data-tone');
       } else if (c.status === 'error'){
         hintEl.textContent = c.error;
         hintEl.setAttribute('data-tone','error');
@@ -1569,7 +1687,7 @@
       if (!query){
         state.competitors[i].status = 'idle';
         state.competitors[i].error = '';
-        state.competitors[i].video = null;
+        state.competitors[i].videos = [];
         renderHint();
         buildCombined();
         render();
@@ -1579,7 +1697,7 @@
       if (!transport){
         state.competitors[i].status = 'error';
         state.competitors[i].error = 'Live proxy isn’t configured yet (see PROXY_URL) — competitor lookups need it.';
-        state.competitors[i].video = null;
+        state.competitors[i].videos = [];
         renderHint();
         buildCombined();
         render();
@@ -1588,10 +1706,10 @@
       state.competitors[i].status = 'loading';
       state.competitors[i].error = '';
       renderHint();
-      fetchCompetitorLatestVideo(transport, query).then(function(video){
+      fetchCompetitorLatestVideos(transport, query, COMPETITOR_VIDEO_COUNT).then(function(videos){
         if (myToken !== state.competitors[i].token) return;
         state.competitors[i].status = 'ok';
-        state.competitors[i].video = video;
+        state.competitors[i].videos = videos;
         state.competitors[i].error = '';
         renderHint();
         buildCombined();
@@ -1600,7 +1718,7 @@
         if (myToken !== state.competitors[i].token) return;
         state.competitors[i].status = 'error';
         state.competitors[i].error = (err && err.message) || 'Could not load that channel';
-        state.competitors[i].video = null;
+        state.competitors[i].videos = [];
         renderHint();
         buildCombined();
         render();
@@ -1891,6 +2009,26 @@
   var statusEl = document.getElementById('statusLine');
   var refreshBtnEl = document.getElementById('refreshBtn');
 
+  // Reveals the minimal scrollbar thumb (see the CSS above) for ~900ms
+  // after a scroll, in addition to the pure-CSS :hover reveal — so a
+  // trackpad/keyboard-driven scroll that never puts the mouse over the
+  // element still gets a brief thumb flash, the same way an OS overlay
+  // scrollbar behaves.
+  function wireScrollbarFade(el){
+    if (!el) return;
+    var hideTimer = null;
+    el.addEventListener('scroll', function(){
+      el.classList.add('is-scrolling');
+      if (hideTimer) clearTimeout(hideTimer);
+      hideTimer = setTimeout(function(){
+        hideTimer = null;
+        el.classList.remove('is-scrolling');
+      }, 900);
+    }, { passive: true });
+  }
+  wireScrollbarFade(document.querySelector('.rail'));
+  wireScrollbarFade(screenEl);
+
   chipsEl.addEventListener('click', function(e){
     var btn = e.target.closest('.yt-chip');
     if (!btn || btn.disabled) return;
@@ -2042,7 +2180,7 @@
     }
     if (item.type === 'competitor'){
       var comp = state.competitors[item.index] || {};
-      var cv = comp.video;
+      var cv = (comp.videos || [])[item.videoIndex || 0];
       if (!cv) return '';
       return cv.thumbUrl
         ? ('<img class="yt-card__thumb" src="' + cv.thumbUrl + '" alt="">')
@@ -2086,7 +2224,7 @@
     }
     if (item.type === 'competitor'){
       var comp = state.competitors[item.index] || {};
-      var cv = comp.video || {};
+      var cv = (comp.videos || [])[item.videoIndex || 0] || {};
       var compChannel = cv.channel || 'Competitor Channel';
       return {
         title: cv.title || 'Competitor Video',
