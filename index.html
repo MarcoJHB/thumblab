@@ -38,6 +38,12 @@
        every rule that reads it. Only the simulated YouTube screen (`.yt`
        and friends) uses a different, hardcoded font, on purpose. */
     --font-mono:'Inter','Inter UI',system-ui,sans-serif;
+    /* One shared size for every "video title" — the rail's own title
+       textareas AND the rendered YouTube card/row titles inside the
+       simulated screen — so what you type previews at the same size it
+       actually renders at, matching real YouTube's own title size rather
+       than the oversized 1.6rem a previous round set on the input alone. */
+    --title-font-size:.95rem;
   }
 
   /* Light console chrome — same token set, swapped values, set on <body>
@@ -233,23 +239,17 @@
   /* A textarea, not an <input>, so a long title wraps onto multiple lines
      and grows taller (via the auto-grow JS below) instead of scrolling out
      of view horizontally — the whole title stays visible while typing.
-     1.6rem on desktop per request; back down to the original compact size
-     on tablet/mobile, where the rail is already competing for space. */
+     Matches --title-font-size (shared with the rendered YouTube card/row
+     titles below) so what you type previews at the same size it'll
+     actually render at, everywhere, at every screen width — no more
+     oversized 1.6rem input next to a normal-sized rendered title. */
   .variant__title{
     flex:1;min-width:0;
-    font-size:1.6rem;
+    font-size:var(--title-font-size);
     font-family:inherit;
-    line-height:1.3;
+    line-height:1.35;
     resize:none;
     overflow:hidden;
-  }
-  /* Placed after the base rule (not inside the earlier layout media block)
-     so it actually wins the cascade at matching widths — two same-
-     specificity rules for the same property resolve by source order, and a
-     media-scoped rule earlier in the file loses to an unconditioned rule
-     later in the file even when its condition is true. */
-  @media (max-width:900px){
-    .variant__title{font-size:.8rem;}
   }
   .variant__channel{margin-top:.4rem;}
   /* Dimmed + inert while "use most recent video" is on, instead of testing
@@ -598,7 +598,7 @@
   .yt-card__meta{display:flex;gap:.6rem;margin-top:.6rem;}
   .yt-card__text{min-width:0;}
   .yt-card__title{
-    font-size:.92rem;font-weight:500;line-height:1.35;
+    font-size:var(--title-font-size);font-weight:500;line-height:1.35;
     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
   }
   .yt-card__channel,.yt-card__stats{font-size:.8rem;color:var(--yt-text-secondary);line-height:1.5;}
@@ -609,7 +609,7 @@
   .yt-row__thumb-wrap{position:relative;flex-shrink:0;width:23rem;max-width:46%;aspect-ratio:16/9;border-radius:10px;overflow:hidden;background:#000;}
   .device__screen[data-device="mobile"] .yt-row__thumb-wrap{width:100%;max-width:100%;}
   .yt-row__meta{min-width:0;flex:1;}
-  .yt-row__title{font-size:1.05rem;font-weight:500;line-height:1.4;margin-bottom:.3rem;}
+  .yt-row__title{font-size:var(--title-font-size);font-weight:500;line-height:1.4;margin-bottom:.3rem;}
   .yt-row__stats{font-size:.82rem;color:var(--yt-text-secondary);margin-bottom:.55rem;}
   .yt-row__channel{display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem;}
   .yt-row__channel-name{font-size:.82rem;color:var(--yt-text-secondary);}
