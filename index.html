@@ -41,9 +41,14 @@
     /* One shared size for every "video title" — the rail's own title
        textareas AND the rendered YouTube card/row titles inside the
        simulated screen — so what you type previews at the same size it
-       actually renders at, matching real YouTube's own title size rather
-       than the oversized 1.6rem a previous round set on the input alone. */
-    --title-font-size:.95rem;
+       actually renders at.
+       Real youtube.com sets its own <html> root font-size to 10px, so its
+       title CSS reading "1.6rem" is actually 16px on screen — copying that
+       "1.6rem" literally onto THIS page (whose root stays the 16px browser
+       default) rendered at 25.6px, which is what looked oversized. 1rem
+       here is 16px too, so it now matches YouTube's real on-screen size
+       exactly, just expressed against our own root instead of theirs. */
+    --title-font-size:1rem;
   }
 
   /* Light console chrome — same token set, swapped values, set on <body>
@@ -237,19 +242,24 @@
   .variants{display:flex;flex-direction:column;gap:.75rem;}
   .variant__row{display:flex;gap:.55rem;align-items:stretch;}
   /* A textarea, not an <input>, so a long title wraps onto multiple lines
-     and grows taller (via the auto-grow JS below) instead of scrolling out
-     of view horizontally — the whole title stays visible while typing.
+     instead of scrolling out of view horizontally — the whole title stays
+     visible while typing. Height is fixed (sized to fit the 100-character
+     max at the rail's narrowest width) rather than growing with content —
+     an earlier auto-grow version pushed variant B/C and everything below
+     them down the page as you typed. overflow-y:auto is just a safety net
+     for the rare case a specific 100-char string still needs one more
+     line than the box has room for.
      Matches --title-font-size (shared with the rendered YouTube card/row
      titles below) so what you type previews at the same size it'll
-     actually render at, everywhere, at every screen width — no more
-     oversized 1.6rem input next to a normal-sized rendered title. */
+     actually render at, everywhere, at every screen width. */
   .variant__title{
     flex:1;min-width:0;
+    height:9.5rem;
     font-size:var(--title-font-size);
     font-family:inherit;
     line-height:1.35;
     resize:none;
-    overflow:hidden;
+    overflow-y:auto;
   }
   .variant__channel{margin-top:.4rem;}
   /* Dimmed + inert while "use most recent video" is on, instead of testing
@@ -1476,19 +1486,12 @@
       buildCombined();
       render();
     });
-    // Grows the textarea to fit its content — so a long title wraps onto
-    // as many lines as it needs and stays fully visible instead of
-    // scrolling out of view, rather than clipping at a fixed height.
-    function autoGrowTitle(){
-      titleInput.style.height = 'auto';
-      titleInput.style.height = titleInput.scrollHeight + 'px';
-    }
+    // Height is fixed via CSS (.variant__title) so typing never pushes the
+    // rest of the rail down — no per-keystroke resizing here.
     titleInput.addEventListener('input', function(e){
       state.myVariants[i].title = e.target.value;
-      autoGrowTitle();
       render();
     });
-    autoGrowTitle();
 
     // Drag and drop straight onto the A/B/C box, as an alternative to the
     // file picker.
