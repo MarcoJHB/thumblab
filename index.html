@@ -1156,7 +1156,10 @@
             desc: decodeHtmlEntities((it.snippet.description || '').slice(0,160)),
             // Round 26: the real video's own watch URL, so its thumbnail/title
             // can open it on youtube.com in a new tab.
-            url: 'https://www.youtube.com/watch?v=' + encodeURIComponent(it.id)
+            url: 'https://www.youtube.com/watch?v=' + encodeURIComponent(it.id),
+            // Round 27: the bare video id, so the sharpest available
+            // thumbnail can be requested directly (see ytThumbImgHtml()).
+            ytId: it.id
           };
         });
       });
@@ -1221,6 +1224,8 @@
             avatarUrl: avatarMap[it.snippet.channelId] || null,
             desc: decodeHtmlEntities((it.snippet.description || '').slice(0,160)),
             url: 'https://www.youtube.com/watch?v=' + encodeURIComponent(it.id.videoId),
+            // Round 27: see ytId note on fetchHomeVideos() above.
+            ytId: it.id.videoId,
             _secs: secs
           };
         });
@@ -1335,7 +1340,9 @@
             thumbUrl: pickThumb(item.snippet.thumbnails),
             avatarUrl: avatarMap[chan.channelId] || null,
             desc: decodeHtmlEntities((item.snippet.description || '').slice(0,160)),
-            url: 'https://www.youtube.com/watch?v=' + encodeURIComponent(item.snippet.resourceId.videoId)
+            url: 'https://www.youtube.com/watch?v=' + encodeURIComponent(item.snippet.resourceId.videoId),
+            // Round 27: see ytId note on fetchHomeVideos() above.
+            ytId: item.snippet.resourceId.videoId
           };
         });
       });
@@ -2153,6 +2160,35 @@
   var contentEl = document.getElementById('ytContent');
   var statusEl = document.getElementById('statusLine');
 
+  // Round 27: ytThumbImgHtml() above points real video thumbnails at
+  // YouTube's maxresdefault.jpg CDN URL directly, for the sharpest image
+  // available (see the comment there). When that specific file doesn't
+  // exist YouTube serves back a small 120x90 grey placeholder with a normal
+  // 200 response rather than failing the request, so 'load' checks the
+  // image's actual decoded size, not just whether it loaded; 'error' covers
+  // a genuine network failure. Neither event bubbles, so both are
+  // delegated here in the capture phase rather than needing a listener on
+  // every individual <img> (capture still fires on the way down to the
+  // target regardless of whether the event bubbles back up).
+  function swapToFallbackThumb(img){
+    var fallback = img.getAttribute('data-yt-fallback');
+    if (!fallback) return;
+    img.removeAttribute('data-yt-fallback');
+    img.src = fallback;
+  }
+  contentEl.addEventListener('load', function(e){
+    var img = e.target;
+    if (img.tagName === 'IMG' && img.hasAttribute('data-yt-fallback') && img.naturalWidth > 0 && img.naturalWidth <= 120){
+      swapToFallbackThumb(img);
+    }
+  }, true);
+  contentEl.addEventListener('error', function(e){
+    var img = e.target;
+    if (img.tagName === 'IMG' && img.hasAttribute('data-yt-fallback')){
+      swapToFallbackThumb(img);
+    }
+  }, true);
+
   // Reveals the minimal scrollbar thumb (see the CSS above) for ~900ms
   // after a scroll, in addition to the pure-CSS :hover reveal — so a
   // trackpad/keyboard-driven scroll that never puts the mouse over the
@@ -2318,6 +2354,26 @@
     return '<div class="yt-empty">Nothing to show yet — try a different category above.</div>';
   }
 
+  // Round 27: the Data API's own thumbnails object often doesn't report a
+  // "maxres" (1280x720) entry — pickThumb() then falls back to whatever
+  // smaller size (standard/high/medium/default) it does report, which then
+  // gets stretched by CSS to fill however wide the card actually renders
+  // (this app's layout has no page max-width, so on a large monitor a grid
+  // card can easily be wider than a 480x360 "high" thumbnail), looking
+  // visibly blurry. YouTube's thumbnail CDN frequently still has the true
+  // maxresdefault.jpg for a video even when the API metadata doesn't
+  // mention it, so real videos try that direct, full-resolution URL first
+  // and only fall back to the API-confirmed thumbUrl (already the best
+  // pickThumb() found) if it turns out not to exist. See the delegated
+  // 'load'/'error' listeners on contentEl below for the fallback logic.
+  function ytThumbImgHtml(cls, thumbUrl, ytId){
+    if (!thumbUrl) return '';
+    if (!ytId){
+      return '<img class="' + cls + '" src="' + escapeHtml(thumbUrl) + '" alt="">';
+    }
+    var maxresUrl = 'https://i.ytimg.com/vi/' + encodeURIComponent(ytId) + '/maxresdefault.jpg';
+    return '<img class="' + cls + '" src="' + escapeHtml(maxresUrl) + '" data-yt-fallback="' + escapeHtml(thumbUrl) + '" alt="">';
+  }
   function thumbInnerHtml(item){
     if (item.type === 'mine'){
       var v = state.myVariants[item.index] || {};
@@ -2327,7 +2383,7 @@
       var mv = state.myChannel.video;
       if (!mv) return '';
       return mv.thumbUrl
-        ? ('<img class="yt-card__thumb" src="' + mv.thumbUrl + '" alt="">')
+        ? ytThumbImgHtml('yt-card__thumb', mv.thumbUrl, mv.ytId)
         : '<div class="yt-card__thumb-fill" style="background:linear-gradient(135deg,#3a3d46,#22242b)"><span>?</span></div>';
     }
     if (item.type === 'competitor'){
@@ -2335,13 +2391,13 @@
       var cv = (comp.videos || [])[item.videoIndex || 0];
       if (!cv) return '';
       return cv.thumbUrl
-        ? ('<img class="yt-card__thumb" src="' + cv.thumbUrl + '" alt="">')
+        ? ytThumbImgHtml('yt-card__thumb', cv.thumbUrl, cv.ytId)
         : '<div class="yt-card__thumb-fill" style="background:linear-gradient(135deg,#3a3d46,#22242b)"><span>?</span></div>';
     }
     if (item.type === 'real'){
       var r = item.data;
       return r.thumbUrl
-        ? ('<img class="yt-card__thumb" src="' + r.thumbUrl + '" alt="">')
+        ? ytThumbImgHtml('yt-card__thumb', r.thumbUrl, r.ytId)
         : '<div class="yt-card__thumb-fill" style="background:linear-gradient(135deg,#3a3d46,#22242b)"><span>?</span></div>';
     }
     var f = item.data;
@@ -2499,5 +2555,4 @@
 })();
 </script>
 
-</body>
-</html>
+</body></html>
