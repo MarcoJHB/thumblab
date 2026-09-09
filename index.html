@@ -664,6 +664,18 @@
 
   .yt-card{cursor:default;}
   .yt-card__thumb-wrap{position:relative;width:100%;aspect-ratio:16/9;border-radius:10px;overflow:hidden;background:#000;}
+  /* Round 26: a real video's thumbnail/title render as an <a> instead of a
+     <div>/<span> (see linkWrap()) so it opens on youtube.com in a new tab —
+     reset the anchor defaults (color, underline, inline display) so it
+     still lays out and looks exactly like the non-linked version. */
+  a.yt-card__thumb-wrap,a.yt-row__thumb-wrap{display:block;cursor:pointer;}
+  a.yt-card__title,a.yt-row__title{color:inherit;text-decoration:none;cursor:pointer;}
+  /* .yt-card__title already sets display:-webkit-box for its 2-line clamp —
+     leaving display alone here so the anchor variant still clamps; the row
+     title has no such rule, so it needs an explicit block to lay out right
+     as an <a> instead of collapsing to inline. */
+  a.yt-row__title{display:block;}
+  a.yt-card__title:hover,a.yt-row__title:hover{text-decoration:underline;}
   .yt-card__thumb{width:100%;height:100%;object-fit:cover;}
   .yt-card__thumb-fill{width:100%;height:100%;display:flex;align-items:center;justify-content:center;position:relative;}
   .yt-card__thumb-fill span{font-size:2.6rem;font-weight:800;color:rgba(255,255,255,.5);font-family:var(--font-display);}
@@ -1141,7 +1153,10 @@
             duration: parseISODuration(it.contentDetails && it.contentDetails.duration),
             thumbUrl: pickThumb(it.snippet.thumbnails),
             avatarUrl: avatarMap[it.snippet.channelId] || null,
-            desc: decodeHtmlEntities((it.snippet.description || '').slice(0,160))
+            desc: decodeHtmlEntities((it.snippet.description || '').slice(0,160)),
+            // Round 26: the real video's own watch URL, so its thumbnail/title
+            // can open it on youtube.com in a new tab.
+            url: 'https://www.youtube.com/watch?v=' + encodeURIComponent(it.id)
           };
         });
       });
@@ -1162,7 +1177,8 @@
             duration: '',
             thumbUrl: pickThumb(it.snippet.thumbnails),
             avatarUrl: null,
-            desc: decodeHtmlEntities((it.snippet.description || '').slice(0,160))
+            desc: decodeHtmlEntities((it.snippet.description || '').slice(0,160)),
+            url: (it.id && it.id.playlistId) ? ('https://www.youtube.com/playlist?list=' + encodeURIComponent(it.id.playlistId)) : null
           };
         });
       });
@@ -1204,6 +1220,7 @@
             thumbUrl: pickThumb(it.snippet.thumbnails),
             avatarUrl: avatarMap[it.snippet.channelId] || null,
             desc: decodeHtmlEntities((it.snippet.description || '').slice(0,160)),
+            url: 'https://www.youtube.com/watch?v=' + encodeURIComponent(it.id.videoId),
             _secs: secs
           };
         });
@@ -1317,7 +1334,8 @@
             duration: parseISODuration(vItem.contentDetails && vItem.contentDetails.duration),
             thumbUrl: pickThumb(item.snippet.thumbnails),
             avatarUrl: avatarMap[chan.channelId] || null,
-            desc: decodeHtmlEntities((item.snippet.description || '').slice(0,160))
+            desc: decodeHtmlEntities((item.snippet.description || '').slice(0,160)),
+            url: 'https://www.youtube.com/watch?v=' + encodeURIComponent(item.snippet.resourceId.videoId)
           };
         });
       });
@@ -2353,7 +2371,10 @@
         age: mv.age || '',
         duration: mv.duration || '',
         avatar: avatarInnerHtml(mv.avatarUrl || state.myChannel.avatarUrl, initialsOf(mChannel), '#3f4148'),
-        desc: mv.desc || 'Your channel’s most recent long-form upload, pulled live from YouTube.'
+        desc: mv.desc || 'Your channel’s most recent long-form upload, pulled live from YouTube.',
+        // Round 26: this is your own real channel's real latest upload, so
+        // it opens on youtube.com just like every other real video card.
+        videoUrl: mv.url || null
       };
     }
     if (item.type === 'competitor'){
@@ -2367,7 +2388,8 @@
         age: cv.age || '',
         duration: cv.duration || '',
         avatar: avatarInnerHtml(cv.avatarUrl, initialsOf(compChannel), hashColor(compChannel)),
-        desc: cv.desc || 'This competitor’s most recent upload, pulled live from YouTube for side-by-side comparison.'
+        desc: cv.desc || 'This competitor’s most recent upload, pulled live from YouTube for side-by-side comparison.',
+        videoUrl: cv.url || null
       };
     }
     if (item.type === 'real'){
@@ -2379,7 +2401,8 @@
         age: r.age,
         duration: r.duration,
         avatar: avatarInnerHtml(r.avatarUrl, initialsOf(r.channel), hashColor(r.channel)),
-        desc: r.desc || rand(DESCRIPTIONS)
+        desc: r.desc || rand(DESCRIPTIONS),
+        videoUrl: r.url || null
       };
     }
     var f = item.data;
@@ -2394,19 +2417,34 @@
     };
   }
 
+  // Round 26: a real video (home/search results, a competitor's pull, or
+  // your own channel's real latest upload via "use my latest video") can
+  // carry a real videoUrl — clicking its thumbnail or title opens that
+  // actual video on youtube.com in a new tab, same as the real site. Your
+  // own uploaded-thumbnail test cards and the generated-placeholder pool
+  // have no real video behind them, so d.videoUrl is falsy for those and
+  // they render as plain, unclickable elements — same markup as before.
+  function linkWrap(tag, cls, url, inner, extraAttrs){
+    extraAttrs = extraAttrs || '';
+    if (url){
+      return '<a class="' + cls + '" href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer"' + extraAttrs + '>' + inner + '</a>';
+    }
+    return '<' + tag + ' class="' + cls + '"' + extraAttrs + '>' + inner + '</' + tag + '>';
+  }
+
   function renderGrid(list){
     var html = '<div class="yt-grid">';
     list.forEach(function(item){
       var d = cardData(item);
+      var thumbInner = thumbInnerHtml(item) +
+        (d.duration ? '<span class="yt-card__duration">' + escapeHtml(d.duration) + '</span>' : '');
+      var linkLabel = d.videoUrl ? ' aria-label="Watch on YouTube: ' + escapeHtml(d.title) + '"' : '';
       html += '<article class="yt-card">' +
-        '<div class="yt-card__thumb-wrap">' +
-          thumbInnerHtml(item) +
-          (d.duration ? '<span class="yt-card__duration">' + escapeHtml(d.duration) + '</span>' : '') +
-        '</div>' +
+        linkWrap('div', 'yt-card__thumb-wrap', d.videoUrl, thumbInner, linkLabel) +
         '<div class="yt-card__meta">' +
           '<div class="yt-avatar">' + d.avatar + '</div>' +
           '<div class="yt-card__text">' +
-            '<div class="yt-card__title">' + escapeHtml(d.title) + '</div>' +
+            linkWrap('div', 'yt-card__title', d.videoUrl, escapeHtml(d.title)) +
             '<div class="yt-card__channel">' + escapeHtml(d.channel) + '</div>' +
             '<div class="yt-card__stats">' + statsLine(d.views, d.age) + '</div>' +
           '</div>' +
@@ -2421,13 +2459,13 @@
     var html = '<div class="yt-list">';
     list.forEach(function(item){
       var d = cardData(item);
+      var thumbInner = thumbInnerHtml(item) +
+        (d.duration ? '<span class="yt-card__duration">' + escapeHtml(d.duration) + '</span>' : '');
+      var linkLabel = d.videoUrl ? ' aria-label="Watch on YouTube: ' + escapeHtml(d.title) + '"' : '';
       html += '<article class="yt-row">' +
-        '<div class="yt-row__thumb-wrap">' +
-          thumbInnerHtml(item) +
-          (d.duration ? '<span class="yt-card__duration">' + escapeHtml(d.duration) + '</span>' : '') +
-        '</div>' +
+        linkWrap('div', 'yt-row__thumb-wrap', d.videoUrl, thumbInner, linkLabel) +
         '<div class="yt-row__meta">' +
-          '<div class="yt-row__title">' + escapeHtml(d.title) + '</div>' +
+          linkWrap('div', 'yt-row__title', d.videoUrl, escapeHtml(d.title)) +
           '<div class="yt-row__stats">' + statsLine(d.views, d.age) + '</div>' +
           '<div class="yt-row__channel"><div class="yt-avatar" style="width:1.4rem;height:1.4rem;font-size:.55rem;">' + d.avatar + '</div><span class="yt-row__channel-name">' + escapeHtml(d.channel) + '</span></div>' +
           '<div class="yt-row__desc">' + escapeHtml(d.desc) + '</div>' +
