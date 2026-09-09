@@ -507,10 +507,6 @@
     --yt-text:#0f0f0f;
     --yt-text-secondary:#606060;
     --yt-border:#e5e5e5;
-    --yt-chip-bg:#f2f2f2;
-    --yt-chip-text:#0f0f0f;
-    --yt-chip-active-bg:#0f0f0f;
-    --yt-chip-active-text:#fff;
     --yt-search-bg:#fff;
     --yt-search-border:#ccc;
     --yt-search-btn-bg:#f8f8f8;
@@ -531,10 +527,6 @@
     --yt-text:#f1f1f1;
     --yt-text-secondary:#aaaaaa;
     --yt-border:#303030;
-    --yt-chip-bg:#272727;
-    --yt-chip-text:#f1f1f1;
-    --yt-chip-active-bg:#f1f1f1;
-    --yt-chip-active-text:#0f0f0f;
     --yt-search-bg:#121212;
     --yt-search-border:#303030;
     --yt-search-btn-bg:#222;
@@ -604,12 +596,6 @@
   .device[data-device="desktop"] .device__screen.is-scrolling::-webkit-scrollbar-thumb{
     background-color:var(--text-faint);
   }
-  /* The horizontally-scrolling category-chip row never needs a visible
-     scrollbar either, on any device — the real YouTube UI just lets you
-     drag/swipe it. */
-  .yt-chips{scrollbar-width:none;-ms-overflow-style:none;}
-  .yt-chips::-webkit-scrollbar{display:none;}
-
   .yt{font-family:'Roboto','Segoe UI',Arial,sans-serif;color:var(--yt-text);}
 
   .yt-top{
@@ -661,39 +647,11 @@
   }
   .yt-avatar img{width:100%;height:100%;object-fit:cover;}
 
-  .yt-chips-wrap{position:relative;}
-  .yt-chips{
-    display:flex;gap:.55rem;padding:.7rem 1.1rem;overflow-x:auto;
-    border-bottom:1px solid var(--yt-border);
-  }
-  .yt-chip{
-    flex-shrink:0;font-size:.8rem;padding:.35rem .85rem;border-radius:8px;
-    background:var(--yt-chip-bg);color:var(--yt-chip-text);white-space:nowrap;
-    border:none;cursor:pointer;font-family:inherit;
-  }
-  .yt-chip:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
-  .yt-chip:disabled{opacity:.5;cursor:default;}
-  .yt-chip[data-active="true"]{background:var(--yt-chip-active-bg);color:var(--yt-chip-active-text);}
-
-  /* With the native scrollbar hidden on tablet/mobile (nothing shows the
-     chip row can scroll), an explicit tappable button takes its place —
-     a faded edge with an arrow, the same "paged scroll" pattern the real
-     YouTube site itself uses on desktop, just always tap-visible here
-     instead of hover-only. Hidden entirely on desktop, where the native
-     scrollbar (or just enough width to not need one) is expected. */
-  .yt-chips__scroll-btn{
-    display:none;
-    position:absolute;top:0;bottom:1px;width:2.5rem;
-    align-items:center;justify-content:center;
-    border:none;padding:0;cursor:pointer;
-    color:var(--yt-text);font-size:1.4rem;line-height:1;
-    z-index:3;
-  }
-  .device[data-device="tablet"] .yt-chips__scroll-btn,
-  .device[data-device="mobile"] .yt-chips__scroll-btn{display:flex;}
-  .yt-chips__scroll-btn--right{right:0;background:linear-gradient(to right,transparent,var(--yt-bg-elevated) 60%);}
-  .yt-chips__scroll-btn--left{left:0;background:linear-gradient(to left,transparent,var(--yt-bg-elevated) 60%);}
-
+  /* Round 25: the category-chip / search-tab row (.yt-chips and friends)
+     was removed here — it wasn't reliably reflecting what was actually
+     being shown once an active search query could apply to Home page
+     content too (see fetchHomeVideos() in the script below), so the
+     chips no longer had a clear, correct effect when clicked. */
   .yt-search-meta{padding:.85rem 1.1rem 0;font-size:.82rem;color:var(--yt-text-secondary);}
 
   .yt-content{padding:1rem 1.1rem 1.5rem;}
@@ -820,7 +778,6 @@
         <div class="variant__row">
           <input id="narrowSearchInput" class="field" type="text" maxlength="60" placeholder="Enter your search term">
         </div>
-        <p class="rail__hint rail__hint--tight" id="narrowSearchHint">Press Enter to search YouTube for this — switches Preview to Search results, same as the search box at the top of the screen above.</p>
       </section>
       <p class="rail__status" id="statusLine" aria-live="polite"></p>
 
@@ -840,11 +797,6 @@
         <div class="device__screen" id="screen" data-device="desktop" data-yt-theme="dark">
           <div class="yt">
             <div class="yt-top" id="ytTop"></div>
-            <div class="yt-chips-wrap">
-              <div class="yt-chips" id="ytChips"></div>
-              <button type="button" class="yt-chips__scroll-btn yt-chips__scroll-btn--left is-hidden" id="ytChipsScrollLeft" aria-label="Scroll categories left">&lsaquo;</button>
-              <button type="button" class="yt-chips__scroll-btn yt-chips__scroll-btn--right is-hidden" id="ytChipsScrollRight" aria-label="Scroll categories right">&rsaquo;</button>
-            </div>
             <div class="yt-search-meta is-hidden" id="ytSearchMeta"></div>
             <div class="yt-content" id="ytContent"></div>
           </div>
@@ -866,7 +818,6 @@
   var PROXY_URL = 'https://thumblab-proxy.marcothepolo.workers.dev';
 
   var ICON = {
-    hamburger: '<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M3 6h18v2H3zM3 11h18v2H3zM3 16h18v2H3z"/></svg>',
     play: '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>',
     search: '<svg viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" d="M10.5 3a7.5 7.5 0 1 0 4.76 13.3l5.2 5.2 1.4-1.4-5.2-5.2A7.5 7.5 0 0 0 10.5 3z"/></svg>',
     mic: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>',
@@ -933,13 +884,6 @@
     {key:'entertainment', label:'Entertainment', apiId:'24'},
     {key:'comedy', label:'Comedy', apiId:'23'},
     {key:'news', label:'News & Politics', apiId:'25'}
-  ];
-  var SEARCH_TABS = [
-    {key:'all', label:'All'},
-    {key:'videos', label:'Videos'},
-    {key:'shorts', label:'Shorts'},
-    {key:'live', label:'Live'},
-    {key:'playlists', label:'Playlists'}
   ];
 
   function rand(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
@@ -1139,6 +1083,17 @@
       .catch(function(){ return {}; });
   }
   function fetchHomeVideos(transport, category){
+    // Round 25: an actually-submitted search query (state.searchApplied —
+    // NOT just state.query being non-empty, which would also be true for
+    // its unsubmitted starter value) now applies to the Home page too, not
+    // just Search results — a visitor asked for the query to actually
+    // filter/search Home content instead of being ignored there and only
+    // ever taking effect by force-switching to Search results. Reuses the
+    // already-tested fetchSearchVideos() rather than duplicating it, same
+    // as the category-404 fallback below does.
+    var q = (state.query || '').trim();
+    if (state.searchApplied && q) return fetchSearchVideos(transport, q, 'videos', { maxResults:'50' });
+
     var categoryApiId = category && category.apiId;
     // maxResults is pulled up to the API max (50, same 1-unit quota cost as
     // any other value) so there's still a full grid left after Shorts are
@@ -1397,6 +1352,15 @@
     uiTheme: 'dark',
     ytTheme: 'dark',
     query: 'video editing tips',
+    // Round 25: true once a visitor has actually submitted a search (via
+    // any of the three query-entry points — see applySearchQuery() below),
+    // as opposed to `query` merely holding its unsubmitted starter value
+    // ("video editing tips", the Search-results panel's own placeholder-ish
+    // default). fetchHomeVideos() below gates on this, not on `query` being
+    // non-empty, so a fresh visitor who never searched still sees ordinary
+    // category-trending content on the Home page instead of that starter
+    // string being silently treated as an active search.
+    searchApplied: false,
     // Your own channel is now resolved live from YouTube, the same way a
     // competitor is — type a name/@handle/URL and it pulls the real name +
     // avatar. `name` is what actually renders (falls back to "ThumbLab"
@@ -1474,6 +1438,7 @@
       uiTheme: state.uiTheme,
       ytTheme: state.ytTheme,
       query: state.query,
+      searchApplied: state.searchApplied,
       category: state.category,
       searchTab: state.searchTab,
       useLiveVideo: state.useLiveVideo,
@@ -1495,6 +1460,7 @@
         var light = {
           v: payload.v, device: payload.device, preview: payload.preview,
           uiTheme: payload.uiTheme, ytTheme: payload.ytTheme, query: payload.query,
+          searchApplied: payload.searchApplied,
           category: payload.category, searchTab: payload.searchTab,
           useLiveVideo: payload.useLiveVideo,
           onlyMine: payload.onlyMine,
@@ -1525,6 +1491,7 @@
     if (typeof saved.uiTheme === 'string') state.uiTheme = saved.uiTheme;
     if (typeof saved.ytTheme === 'string') state.ytTheme = saved.ytTheme;
     if (typeof saved.query === 'string') state.query = saved.query;
+    if (typeof saved.searchApplied === 'boolean') state.searchApplied = saved.searchApplied;
     if (typeof saved.category === 'string') state.category = saved.category;
     if (typeof saved.searchTab === 'string') state.searchTab = saved.searchTab;
     if (typeof saved.useLiveVideo === 'boolean') state.useLiveVideo = saved.useLiveVideo;
@@ -2035,44 +2002,60 @@
   searchInputEl.value = state.query;
   searchInputEl.addEventListener('input', function(e){
     state.query = e.target.value;
+    narrowSearchInputEl.value = e.target.value;
     render();
   });
   searchInputEl.addEventListener('keydown', function(e){
-    if (e.key === 'Enter'){ e.preventDefault(); refreshContent(); }
+    if (e.key === 'Enter'){ e.preventDefault(); applySearchQuery(e.target.value); }
   });
-  document.getElementById('searchGoBtn').addEventListener('click', function(){ refreshContent(); });
+  document.getElementById('searchGoBtn').addEventListener('click', function(){ applySearchQuery(searchInputEl.value); });
 
-  // "Narrow by Search" (round 23, repurposed round 24) — a second,
-  // always-visible search box in the rail. Originally a client-side-only
-  // filter over whatever was already on screen; changed after user
-  // feedback that typing a term here and getting only 1-of-51 loaded
-  // Home-page cards (rather than actual matching videos) read as broken,
-  // not as "narrowing." It now performs a real search on Enter, exactly
-  // like the simulated YouTube screen's own top search box: it hands off
-  // to switchToSearchWithQuery(), below, which fetches.
+  // "Narrow by Search" (round 23; became a real search round 24; applies
+  // to whichever Preview is active, round 25) — a second, always-visible
+  // search box in the rail. Pressing Enter here sets the active search
+  // query and re-fetches, same as every other query-entry point — but
+  // unlike the simulated screen's own top search box below (which mimics
+  // real YouTube's header by always jumping to Search results), this one
+  // does NOT force a Preview switch. A visitor asked for exactly this:
+  // searching here used to force a jump to Search results, and switching
+  // back to Home page silently dropped the query — Home page ignored it
+  // entirely. Now fetchHomeVideos() (see above) honors an active query
+  // too, so the same search applies to Home and Search results alike, and
+  // toggling the Preview segmented control between them keeps it active
+  // either way instead of resetting it.
   var narrowSearchInputEl = document.getElementById('narrowSearchInput');
   narrowSearchInputEl.value = state.query;
   narrowSearchInputEl.addEventListener('keydown', function(e){
     if (e.key !== 'Enter') return;
     e.preventDefault();
-    switchToSearchWithQuery(e.target.value);
+    applySearchQuery(e.target.value);
   });
 
-  // Switches the whole console into search mode with the given query —
-  // shared by the simulated YouTube screen's own top search box, the
-  // rail's "Narrow by Search" box, and anywhere else that should behave
-  // like "the visitor just searched for this." Mirrors the change into
-  // the rail's own "Search query" field/panel, the "Narrow by Search"
-  // box, and the Preview segmented control too, so all of them stay in
-  // sync no matter which one was actually used.
-  function switchToSearchWithQuery(q){
+  // Sets the active search query, mirrors it into every query-entry point
+  // (the top search box reads state.query on its next render(); the rail's
+  // "Search query" field and the "Narrow by Search" box are updated
+  // directly here since they're static, not rebuilt) and re-fetches
+  // whatever Preview is currently showing — Home or Search. Does not touch
+  // which Preview is active; see switchToSearchWithQuery() below for the
+  // one entry point that also forces a switch.
+  function applySearchQuery(q){
     state.query = q;
-    state.preview = 'search';
+    state.searchApplied = !!(q && q.trim());
     searchInputEl.value = q;
     narrowSearchInputEl.value = q;
+    refreshContent();
+  }
+
+  // Switches the whole console into Search-results mode with the given
+  // query, matching real YouTube's header behavior of always jumping to
+  // search results when you search from the top of the screen. Used only
+  // by the simulated screen's own top search box — "Narrow by Search"
+  // deliberately does not do this (see above).
+  function switchToSearchWithQuery(q){
+    state.preview = 'search';
     document.getElementById('searchQueryPanel').classList.remove('is-hidden');
     syncSegmented('previewSeg', 'search');
-    refreshContent();
+    applySearchQuery(q);
   }
 
   // ---------- rail: segmented controls ----------
@@ -2148,9 +2131,6 @@
   var bezelEl = document.getElementById('deviceBezel');
   var screenEl = document.getElementById('screen');
   var topEl = document.getElementById('ytTop');
-  var chipsEl = document.getElementById('ytChips');
-  var chipsScrollLeftEl = document.getElementById('ytChipsScrollLeft');
-  var chipsScrollRightEl = document.getElementById('ytChipsScrollRight');
   var searchMetaEl = document.getElementById('ytSearchMeta');
   var contentEl = document.getElementById('ytContent');
   var statusEl = document.getElementById('statusLine');
@@ -2183,14 +2163,6 @@
     var hidden = labEl.classList.toggle('is-sidebar-hidden');
     sidebarToggleBtnEl.setAttribute('aria-expanded', hidden ? 'false' : 'true');
     sidebarToggleBtnEl.setAttribute('aria-label', hidden ? 'Show sidebar' : 'Hide sidebar');
-  });
-
-  chipsEl.addEventListener('click', function(e){
-    var btn = e.target.closest('.yt-chip');
-    if (!btn || btn.disabled) return;
-    var key = btn.getAttribute('data-key');
-    if (state.preview === 'search') state.searchTab = key; else state.category = key;
-    refreshContent();
   });
 
   // The simulated YouTube screen's own top search box (#ytTop is rebuilt on
@@ -2242,7 +2214,6 @@
     var myAvatar = avatarInnerHtml(state.myChannel.avatarUrl, initialsOf(state.myChannel.name), '#3f4148');
     var leftHtml =
       '<div class="yt-top__left">' +
-        '<button class="yt-top__icon-btn" type="button">' + ICON.hamburger + '</button>' +
         '<div class="yt-top__logo"><span class="yt-top__logo-badge">' + ICON.play + '</span>YouTube</div>' +
       '</div>';
 
@@ -2283,51 +2254,21 @@
       '<div class="yt-top__right"><div class="yt-avatar">' + myAvatar + '</div></div>';
   }
 
-  function renderChips(){
-    var list = state.preview === 'search' ? SEARCH_TABS : HOME_CATEGORIES;
-    var activeKey = state.preview === 'search' ? state.searchTab : state.category;
-    var loading = state.liveStatus === 'loading';
-    chipsEl.innerHTML = list.map(function(c){
-      return '<button type="button" class="yt-chip" data-key="' + c.key + '" data-active="' + (c.key === activeKey) + '"' + (loading ? ' disabled' : '') + '>' + escapeHtml(c.label) + '</button>';
-    }).join('');
+  // The category-chip / search-tab bar (and its tap-to-scroll buttons) was
+  // removed in round 25 — it wasn't reliably reflecting what was actually
+  // being shown once "Narrow by Search" started driving both Home and
+  // Search content (see fetchHomeVideos()/refreshContent() below), and
+  // clicking a chip no longer had a clear, correct effect. The "Results
+  // for ..." status line is kept — it's still an accurate, useful readout
+  // of the active search query while in Search-results preview.
+  function renderSearchMeta(){
     if (state.preview === 'search'){
       searchMetaEl.classList.remove('is-hidden');
       searchMetaEl.textContent = 'Results for "' + (state.query || '') + '"';
     } else {
       searchMetaEl.classList.add('is-hidden');
     }
-    updateChipsScrollButtons();
-    scheduleChipsScrollButtonsRecheck();
   }
-
-  // Tap-to-scroll buttons for the category-chip row, standing in for the
-  // native scrollbar that's hidden on tablet/mobile. Shown/hidden based on
-  // how much (if any) there still is to scroll in each direction.
-  function updateChipsScrollButtons(){
-    var maxScroll = chipsEl.scrollWidth - chipsEl.clientWidth;
-    var canScroll = maxScroll > 4;
-    chipsScrollLeftEl.classList.toggle('is-hidden', !canScroll || chipsEl.scrollLeft <= 2);
-    chipsScrollRightEl.classList.toggle('is-hidden', !canScroll || chipsEl.scrollLeft >= maxScroll - 2);
-  }
-  // .device animates its width (.18s) when the Device toggle changes, so a
-  // measurement taken the instant that attribute flips still reflects the
-  // pre-transition width — recheck once the transition has had time to
-  // finish so the buttons end up matching the frame's real, settled size.
-  var chipsScrollButtonsRecheckTimer = null;
-  function scheduleChipsScrollButtonsRecheck(){
-    if (chipsScrollButtonsRecheckTimer) clearTimeout(chipsScrollButtonsRecheckTimer);
-    chipsScrollButtonsRecheckTimer = setTimeout(function(){
-      chipsScrollButtonsRecheckTimer = null;
-      updateChipsScrollButtons();
-    }, 220);
-  }
-  chipsEl.addEventListener('scroll', updateChipsScrollButtons);
-  chipsScrollRightEl.addEventListener('click', function(){
-    chipsEl.scrollBy({ left: Math.round(chipsEl.clientWidth * 0.7), behavior: 'smooth' });
-  });
-  chipsScrollLeftEl.addEventListener('click', function(){
-    chipsEl.scrollBy({ left: -Math.round(chipsEl.clientWidth * 0.7), behavior: 'smooth' });
-  });
 
   function renderStatus(){
     if (state.liveStatus === 'loading'){
@@ -2504,7 +2445,7 @@
     screenEl.setAttribute('data-yt-theme', state.ytTheme);
     renderBezel();
     renderTop();
-    renderChips();
+    renderSearchMeta();
     renderStatus();
     if (!state.combined.length){
       contentEl.innerHTML = emptyStateHtml();
