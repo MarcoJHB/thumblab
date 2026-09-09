@@ -471,7 +471,12 @@
     padding:.5rem .75rem;
     flex-shrink:0;
   }
-  .device[data-device="desktop"] .device__bezel{padding:.55rem .9rem;}
+  /* Desktop no longer shows the browser-chrome bezel (dots + "youtube.com"
+     URL bar) at all — the screen itself now owns the full top rounding and
+     border that the bezel used to provide. Tablet/mobile keep their notch
+     bezel unchanged. */
+  .device[data-device="desktop"] .device__bezel{display:none;}
+  .device[data-device="desktop"] .device__screen{border-top:1px solid var(--border);border-radius:10px;}
   .device__dot{width:.5rem;height:.5rem;border-radius:50%;background:var(--surface-raised-2);border:1px solid var(--border);}
   .device__url{
     margin-left:.4rem;
@@ -541,10 +546,10 @@
   /* The tablet/mobile frames are styled like an actual device (notch bezel,
      rounded corners) rather than a browser chrome window, so a generic OS
      scrollbar breaks the illusion — the real YouTube app has none. Desktop
-     keeps *a* scrollbar (that frame has a browser-style URL bar above it,
-     where a scrollbar reads as normal) but it's the same minimal,
-     auto-hiding style YouTube's own desktop site uses, not the chunky OS
-     default — see the "minimal scrollbar" block below. */
+     keeps *a* scrollbar, since real desktop youtube.com has one too, but
+     it's the same minimal, auto-hiding style YouTube's own desktop site
+     uses, not the chunky OS default — see the "minimal scrollbar" block
+     below. */
   .device[data-device="tablet"] .device__screen,
   .device[data-device="mobile"] .device__screen{
     scrollbar-width:none;
