@@ -105,6 +105,21 @@
     background:var(--surface);
     flex-shrink:0;
   }
+  /* Round 19: a hamburger button next to the logo toggles the rail
+     entirely off, rather than collapsing it to icons — see .is-sidebar-
+     hidden below. */
+  .lab__sidebar-toggle{
+    width:1.6rem;height:1.6rem;
+    display:inline-flex;align-items:center;justify-content:center;
+    flex-shrink:0;
+    border:none;background:none;padding:0;
+    color:var(--text-dim);
+    border-radius:var(--radius-sm);
+    cursor:pointer;
+  }
+  .lab__sidebar-toggle:hover{color:var(--text);background:var(--surface-raised);}
+  .lab__sidebar-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  .lab__sidebar-toggle svg{width:1.15rem;height:1.15rem;}
   .lab__brand-mark{
     width:1.6rem;height:1.6rem;
     display:inline-flex;align-items:center;justify-content:center;
@@ -135,6 +150,16 @@
     display:grid;
     grid-template-columns:19rem 1fr;
     min-height:0;
+  }
+  /* Sidebar toggle (round 19): fully removes the rail from layout — not a
+     collapse-to-icons, the rail is gone entirely — and lets the bench
+     take the space. The grid-column override only applies at desktop
+     widths; below 900px the layout is already a single flex column (see
+     the next media block), so removing the rail there just leaves the
+     screen with nothing beside it, no override needed. */
+  .lab.is-sidebar-hidden .rail{display:none;}
+  @media (min-width:901px){
+    .lab.is-sidebar-hidden .lab__body{grid-template-columns:1fr;}
   }
   /* Below this width the rail and the simulated YouTube screen stack instead
      of sitting side by side. On desktop, .lab is pinned to exactly one
@@ -269,18 +294,20 @@
   .field-check.is-visible{opacity:1;}
   /* A textarea, not an <input>, so a long title wraps onto multiple lines
      instead of scrolling out of view horizontally — the whole title stays
-     visible while typing. Height is fixed (sized to fit the 100-character
-     max at the rail's narrowest width) rather than growing with content —
-     an earlier auto-grow version pushed variant B/C and everything below
-     them down the page as you typed. overflow-y:auto is just a safety net
-     for the rare case a specific 100-char string still needs one more
-     line than the box has room for.
+     visible while typing. Height is fixed at 3 lines (round 19 — a
+     100-character title only needs 3 lines at this width, so the earlier
+     4-line-tall box left a line's worth of empty space unused by default)
+     rather than growing with content — an earlier auto-grow version
+     pushed variant B/C and everything below them down the page as you
+     typed. overflow-y:auto is the fallback for the titles that do need a
+     4th (or more) line: they scroll inside the box instead of pushing the
+     rest of the rail down or getting clipped.
      Matches --title-font-size (shared with the rendered YouTube card/row
      titles below) so what you type previews at the same size it'll
      actually render at, everywhere, at every screen width. */
   .variant__title{
     width:100%;
-    height:6.75rem;
+    height:5.25rem;
     font-size:var(--title-font-size);
     font-family:inherit;
     line-height:1.35;
@@ -712,8 +739,9 @@
 <body>
 
 
-<div class="lab">
+<div class="lab" id="lab">
   <header class="lab__header">
+    <button type="button" class="lab__sidebar-toggle" id="sidebarToggleBtn" aria-label="Hide sidebar" aria-expanded="true"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 6h18v2H3zM3 11h18v2H3zM3 16h18v2H3z"/></svg></button>
     <span class="lab__brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-1.91l-.01-.01L23 10z"/></svg></span>
     <div class="lab__titles">
       <span class="lab__brand-name">ThumbLab</span>
@@ -2028,6 +2056,16 @@
   }
   wireScrollbarFade(document.querySelector('.rail'));
   wireScrollbarFade(screenEl);
+
+  // Sidebar toggle (round 19): fully hides/shows the rail, not a
+  // collapse-to-icons — see .is-sidebar-hidden in the CSS above.
+  var labEl = document.getElementById('lab');
+  var sidebarToggleBtnEl = document.getElementById('sidebarToggleBtn');
+  sidebarToggleBtnEl.addEventListener('click', function(){
+    var hidden = labEl.classList.toggle('is-sidebar-hidden');
+    sidebarToggleBtnEl.setAttribute('aria-expanded', hidden ? 'false' : 'true');
+    sidebarToggleBtnEl.setAttribute('aria-label', hidden ? 'Show sidebar' : 'Hide sidebar');
+  });
 
   chipsEl.addEventListener('click', function(e){
     var btn = e.target.closest('.yt-chip');
