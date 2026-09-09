@@ -380,8 +380,6 @@
   .btn--primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);}
   .btn--primary:hover{background:var(--accent-dim);border-color:var(--accent-dim);}
   .btn--compact{width:auto;flex-shrink:0;padding:.55rem .9rem;}
-  .panel--actions{gap:.5rem;flex-direction:row;}
-  .panel--actions .btn{flex:1;}
 
   .rail__note{
     margin:.25rem 0 0;
@@ -737,6 +735,7 @@
 </style>
 </head>
 <body>
+<title>ThumbLab</title>
 
 
 <div class="lab" id="lab">
@@ -801,9 +800,16 @@
         <div class="variants" id="competitorSlots"></div>
       </section>
 
-      <section class="panel panel--actions">
-        <button type="button" class="btn btn--primary" id="refreshBtn">New videos</button>
-        <button type="button" class="btn" id="shuffleBtn">Shuffle order</button>
+      <section class="panel">
+        <h2 class="panel__label">Display options</h2>
+        <div class="segmented" id="positionSeg" role="radiogroup" aria-label="Result position">
+          <button type="button" class="segmented__btn is-active" data-value="first" role="radio" aria-checked="true">First Results</button>
+          <button type="button" class="segmented__btn" data-value="random" role="radio" aria-checked="false">Random Order</button>
+        </div>
+        <div class="segmented" id="groupingSeg" role="radiogroup" aria-label="Result grouping">
+          <button type="button" class="segmented__btn is-active" data-value="together" role="radio" aria-checked="true">Side by Side</button>
+          <button type="button" class="segmented__btn" data-value="apart" role="radio" aria-checked="false">Separated</button>
+        </div>
       </section>
       <p class="rail__status" id="statusLine" aria-live="polite"></p>
 
@@ -954,6 +960,25 @@
     return String(s).replace(/[&<>"']/g, function(c){
       return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
     });
+  }
+  // The YouTube Data API sometimes returns title/description/channel-name
+  // text with HTML entities already encoded in it (e.g. a literal "&#39;"
+  // in place of an apostrophe) rather than the plain character — a known
+  // quirk of the API, not something specific to any one video. Decoding
+  // here, right where API text is first read, means escapeHtml() below
+  // only ever escapes real plain text once; without this, an already-
+  // encoded "&#39;" would get its "&" re-escaped to "&amp;" and render on
+  // screen as the literal text "&#39;" instead of an apostrophe. A
+  // <textarea> is used (not a generic element's innerHTML) because setting
+  // .innerHTML on a textarea only ever parses entities as text — it can't
+  // execute scripts or create elements — so this is safe on API text we
+  // don't otherwise trust.
+  var _entityDecoder = null;
+  function decodeHtmlEntities(s){
+    if (s == null) return s;
+    if (!_entityDecoder) _entityDecoder = document.createElement('textarea');
+    _entityDecoder.innerHTML = s;
+    return _entityDecoder.value;
   }
   function shuffle(arr){
     for (var i = arr.length - 1; i > 0; i--){
@@ -1121,14 +1146,14 @@
       return fetchChannelAvatars(transport, channelIds).then(function(avatarMap){
         return items.map(function(it){
           return {
-            title: it.snippet.title,
-            channel: it.snippet.channelTitle,
+            title: decodeHtmlEntities(it.snippet.title),
+            channel: decodeHtmlEntities(it.snippet.channelTitle),
             views: formatViews(parseInt((it.statistics && it.statistics.viewCount) || '0', 10)),
             age: timeAgo(it.snippet.publishedAt),
             duration: parseISODuration(it.contentDetails && it.contentDetails.duration),
             thumbUrl: pickThumb(it.snippet.thumbnails),
             avatarUrl: avatarMap[it.snippet.channelId] || null,
-            desc: (it.snippet.description || '').slice(0,160)
+            desc: decodeHtmlEntities((it.snippet.description || '').slice(0,160))
           };
         });
       });
@@ -1142,14 +1167,14 @@
         if (!items.length) throw new Error('No playlists found for "' + q + '"');
         return items.map(function(it){
           return {
-            title: it.snippet.title,
-            channel: it.snippet.channelTitle,
+            title: decodeHtmlEntities(it.snippet.title),
+            channel: decodeHtmlEntities(it.snippet.channelTitle),
             views: 'Playlist',
             age: '',
             duration: '',
             thumbUrl: pickThumb(it.snippet.thumbnails),
             avatarUrl: null,
-            desc: (it.snippet.description || '').slice(0,160)
+            desc: decodeHtmlEntities((it.snippet.description || '').slice(0,160))
           };
         });
       });
@@ -1181,14 +1206,14 @@
           var stats = statsMap[it.id.videoId] || {};
           var secs = durationSeconds(stats.contentDetails && stats.contentDetails.duration);
           return {
-            title: it.snippet.title,
-            channel: it.snippet.channelTitle,
+            title: decodeHtmlEntities(it.snippet.title),
+            channel: decodeHtmlEntities(it.snippet.channelTitle),
             views: isLive ? 'Live now' : formatViews(parseInt((stats.statistics && stats.statistics.viewCount) || '0', 10)),
             age: isLive ? 'watching' : timeAgo(it.snippet.publishedAt),
             duration: isLive ? '' : parseISODuration(stats.contentDetails && stats.contentDetails.duration),
             thumbUrl: pickThumb(it.snippet.thumbnails),
             avatarUrl: avatarMap[it.snippet.channelId] || null,
-            desc: (it.snippet.description || '').slice(0,160),
+            desc: decodeHtmlEntities((it.snippet.description || '').slice(0,160)),
             _secs: secs
           };
         });
@@ -1224,7 +1249,7 @@
         if (!item) return null;
         var uploads = item.contentDetails && item.contentDetails.relatedPlaylists && item.contentDetails.relatedPlaylists.uploads;
         if (!uploads) return null;
-        return { channelId: item.id, uploadsPlaylistId: uploads, title: item.snippet && item.snippet.title };
+        return { channelId: item.id, uploadsPlaylistId: uploads, title: item.snippet && decodeHtmlEntities(item.snippet.title) };
       });
     }
 
@@ -1295,14 +1320,14 @@
         return picked.map(function(p){
           var item = p.item, vItem = p.vItem;
           return {
-            title: item.snippet.title,
-            channel: chan.title || item.snippet.channelTitle,
+            title: decodeHtmlEntities(item.snippet.title),
+            channel: chan.title || decodeHtmlEntities(item.snippet.channelTitle),
             views: formatViews(parseInt((vItem.statistics && vItem.statistics.viewCount) || '0', 10)),
             age: timeAgo(item.snippet.publishedAt),
             duration: parseISODuration(vItem.contentDetails && vItem.contentDetails.duration),
             thumbUrl: pickThumb(item.snippet.thumbnails),
             avatarUrl: avatarMap[chan.channelId] || null,
-            desc: (item.snippet.description || '').slice(0,160)
+            desc: decodeHtmlEntities((item.snippet.description || '').slice(0,160))
           };
         });
       });
@@ -1361,6 +1386,12 @@
     // a clean side-by-side of just your own options with no other channels
     // in the way.
     onlyMine: false,
+    // Display options (round 20): where the priority block (your own
+    // thumbnails + every resolved competitor's videos) lands in the feed,
+    // and whether its items sit right next to each other or spread apart —
+    // see buildCombined() below.
+    displayPosition: 'first', // 'first' | 'random'
+    displayGrouping: 'together', // 'together' | 'apart'
     category: 'all',
     searchTab: 'all',
     liveStatus: 'idle',   // idle | loading | ok | error
@@ -1412,6 +1443,8 @@
       searchTab: state.searchTab,
       useLiveVideo: state.useLiveVideo,
       onlyMine: state.onlyMine,
+      displayPosition: state.displayPosition,
+      displayGrouping: state.displayGrouping,
       myChannelQuery: state.myChannel.query,
       myVariants: state.myVariants.map(function(v){ return { src: v.src, title: v.title }; }),
       competitorQueries: state.competitors.map(function(c){ return c.query; })
@@ -1429,6 +1462,7 @@
           uiTheme: payload.uiTheme, ytTheme: payload.ytTheme, query: payload.query,
           category: payload.category, searchTab: payload.searchTab, useLiveVideo: payload.useLiveVideo,
           onlyMine: payload.onlyMine,
+          displayPosition: payload.displayPosition, displayGrouping: payload.displayGrouping,
           myChannelQuery: payload.myChannelQuery,
           myVariants: payload.myVariants.map(function(v){ return { src: null, title: v.title }; }),
           competitorQueries: payload.competitorQueries
@@ -1459,6 +1493,8 @@
     if (typeof saved.searchTab === 'string') state.searchTab = saved.searchTab;
     if (typeof saved.useLiveVideo === 'boolean') state.useLiveVideo = saved.useLiveVideo;
     if (typeof saved.onlyMine === 'boolean') state.onlyMine = saved.onlyMine;
+    if (saved.displayPosition === 'first' || saved.displayPosition === 'random') state.displayPosition = saved.displayPosition;
+    if (saved.displayGrouping === 'together' || saved.displayGrouping === 'apart') state.displayGrouping = saved.displayGrouping;
     if (typeof saved.myChannelQuery === 'string') state.myChannel.query = saved.myChannelQuery;
     if (Array.isArray(saved.myVariants)){
       saved.myVariants.slice(0,3).forEach(function(v, i){
@@ -1484,11 +1520,20 @@
   }
 
   // Your own thumbnails and every resolved competitor's videos are
-  // "priority" items: together they land as one contiguous block inserted
-  // at a random point among the top TOP_ZONE slots of the (separately
-  // shuffled) surrounding pool, so they land above the fold instead of
-  // anywhere in a 24-item feed.
-  var TOP_ZONE = 8;
+  // "priority" items. Two independent "Display options" (round 20) control
+  // where they land in the surrounding feed:
+  //  - displayPosition 'first' pins them (or, in 'apart' grouping, the
+  //    first of them) as the very first result; 'random' drops them at a
+  //    random point across the whole feed, which on average reads as
+  //    noticeably lower down than always-first.
+  //  - displayGrouping 'together' keeps them as one contiguous run, right
+  //    next to each other; 'apart' spreads them out, each one separated
+  //    from the next by a handful (SEPARATED_GAP_MIN–MAX) of regular
+  //    videos, so they don't read as an obvious inserted block.
+  // myVariants are always pushed onto `priority` before competitors, so
+  // under "First Results" your own thumbnail is always the very first
+  // item, regardless of the grouping choice.
+  var SEPARATED_GAP_MIN = 4, SEPARATED_GAP_MAX = 6;
   function buildCombined(){
     var priority = [];
     if (state.useLiveVideo){
@@ -1510,14 +1555,8 @@
     var regular = state.pool.slice();
     shuffle(regular);
 
-    // Every resolved competitor's up-to-2 latest long-form videos are
-    // appended right after your own thumbnails, in channel order — the
-    // whole block (your thumbnails plus every competitor's pair) moves and
-    // lands together as one contiguous run, always right next to your own
-    // uploads, rather than each video being shuffled in and landing
-    // somewhere unrelated to the others. Only *where* in the top zone that
-    // block lands is randomized (here, and again on "New videos"/"Shuffle
-    // order").
+    // Every resolved competitor's up-to-2 latest long-form videos join the
+    // priority list right after your own thumbnails, in channel order.
     state.competitors.forEach(function(c, i){
       (c.videos || []).forEach(function(v, vi){
         priority.push({ type:'competitor', index:i, videoIndex:vi });
@@ -1525,8 +1564,17 @@
     });
 
     if (priority.length){
-      var at = randInt(0, Math.min(TOP_ZONE, regular.length));
-      regular.splice.apply(regular, [at, 0].concat(priority));
+      var anchor = state.displayPosition === 'random' ? randInt(0, regular.length) : 0;
+      if (state.displayGrouping === 'apart' && priority.length > 1){
+        var pos = Math.min(anchor, regular.length);
+        priority.forEach(function(item){
+          regular.splice(pos, 0, item);
+          pos += 1 + randInt(SEPARATED_GAP_MIN, SEPARATED_GAP_MAX);
+        });
+      } else {
+        var at = Math.min(anchor, regular.length);
+        regular.splice.apply(regular, [at, 0].concat(priority));
+      }
     }
     state.combined = regular;
   }
@@ -2020,9 +2068,11 @@
     }
   }
 
-  // ---------- rail: actions ----------
-  document.getElementById('refreshBtn').addEventListener('click', function(){ refreshContent(); });
-  document.getElementById('shuffleBtn').addEventListener('click', function(){ buildCombined(); render(); });
+  // ---------- rail: display options ----------
+  wireSegmented('positionSeg', function(v){ state.displayPosition = v; buildCombined(); render(); scheduleSave(); });
+  wireSegmented('groupingSeg', function(v){ state.displayGrouping = v; buildCombined(); render(); scheduleSave(); });
+  syncSegmented('positionSeg', state.displayPosition);
+  syncSegmented('groupingSeg', state.displayGrouping);
 
   // ---------- render ----------
   var deviceEl = document.getElementById('device');
@@ -2035,7 +2085,6 @@
   var searchMetaEl = document.getElementById('ytSearchMeta');
   var contentEl = document.getElementById('ytContent');
   var statusEl = document.getElementById('statusLine');
-  var refreshBtnEl = document.getElementById('refreshBtn');
 
   // Reveals the minimal scrollbar thumb (see the CSS above) for ~900ms
   // after a scroll, in addition to the pure-CSS :hover reveal — so a
@@ -2188,7 +2237,6 @@
       statusEl.textContent = 'Showing generated placeholder videos (no live proxy configured yet).';
       statusEl.removeAttribute('data-tone');
     }
-    refreshBtnEl.disabled = state.liveStatus === 'loading';
   }
 
   function emptyStateHtml(){
@@ -2201,7 +2249,7 @@
       var kind = state.searchTab === 'live' ? 'live streams' : 'playlists';
       return '<div class="yt-empty">Generated placeholders don’t include ' + kind + '. Real ' + kind + ' need the live proxy configured (see PROXY_URL).</div>';
     }
-    return '<div class="yt-empty">Nothing to show yet — try New videos.</div>';
+    return '<div class="yt-empty">Nothing to show yet — try a different category above.</div>';
   }
 
   function thumbInnerHtml(item){
