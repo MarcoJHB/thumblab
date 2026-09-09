@@ -630,18 +630,20 @@
     flex:1;min-width:0;display:flex;max-width:38rem;margin:0 auto;
   }
   .yt-top__search-box{
-    flex:1;min-width:0;display:flex;align-items:center;
+    flex:1;min-width:0;display:block;
     border:1px solid var(--yt-search-border);border-right:none;
     background:var(--yt-search-bg);
     border-radius:18px 0 0 18px;
     padding:0 .9rem;height:2.15rem;
-    font-size:.85rem;color:var(--yt-text);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+    font-family:inherit;font-size:.85rem;color:var(--yt-text);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+    outline:none;
   }
-  .yt-top__search-box[data-empty="true"]{color:var(--yt-placeholder);}
+  .yt-top__search-box::placeholder{color:var(--yt-placeholder);}
+  .yt-top__search-box:focus{border-color:var(--yt-text-secondary);}
   .yt-top__search-btn{
     width:3.4rem;display:flex;align-items:center;justify-content:center;
     background:var(--yt-search-btn-bg);border:1px solid var(--yt-search-border);border-radius:0 18px 18px 0;flex-shrink:0;
-    color:var(--yt-text-secondary);
+    color:var(--yt-text-secondary);padding:0;font:inherit;cursor:pointer;
   }
   .yt-top__search-btn svg{width:.95rem;height:.95rem;}
   .yt-top__mic{
@@ -1132,13 +1134,35 @@
       })
       .catch(function(){ return {}; });
   }
-  function fetchHomeVideos(transport, categoryApiId){
+  function fetchHomeVideos(transport, category){
+    var categoryApiId = category && category.apiId;
     // maxResults is pulled up to the API max (50, same 1-unit quota cost as
     // any other value) so there's still a full grid left after Shorts are
     // filtered out below.
     var params = { part:'snippet,statistics,contentDetails', chart:'mostPopular', regionCode:'US', maxResults:'50' };
     if (categoryApiId) params.videoCategoryId = categoryApiId;
-    return ytFetch('videos', params, transport).then(function(data){
+    return ytFetch('videos', params, transport).catch(function(err){
+      // YouTube's videos.list "mostPopular" chart only has trending data
+      // wired up for a subset of category IDs per region on their own
+      // backend — plenty of otherwise-valid categories (Education among
+      // them) come back a 404 "video category ... was not found" even
+      // though the category itself is completely real, is in
+      // HOME_CATEGORIES, and works fine everywhere else (competitor/search
+      // pulls). That's a quirk of this one chart+category combination, not
+      // something wrong on our end, so instead of surfacing it as a hard
+      // error (which used to fall all the way back to generated
+      // placeholders) retry as a normal search scoped to the category's
+      // own name, ranked by view count so it still reads like "trending in
+      // this category" — search.list doesn't have the same per-region
+      // category restriction.
+      if (categoryApiId && /not\s*(?:be\s*)?found/i.test((err && err.message) || '')){
+        return { _categorySearchFallback: true };
+      }
+      throw err;
+    }).then(function(data){
+      if (data && data._categorySearchFallback){
+        return fetchSearchVideos(transport, category.label, 'videos', { order:'viewCount', maxResults:'50' });
+      }
       // This is meant to read like YouTube's real long-form home page, so
       // anything 8 minutes or under — Shorts included, but also short
       // music videos and other quick uploads — is filtered out here.
@@ -1164,7 +1188,7 @@
       });
     });
   }
-  function fetchSearchVideos(transport, query, tabKey){
+  function fetchSearchVideos(transport, query, tabKey, opts){
     var q = (query || '').trim() || 'trending';
     if (tabKey === 'playlists'){
       return ytFetch('search', { part:'snippet', q:q, type:'playlist', maxResults:'24' }, transport).then(function(data){
@@ -1187,6 +1211,8 @@
     var params = { part:'snippet', q:q, type:'video', maxResults:'24' };
     if (tabKey === 'live') params.eventType = 'live';
     if (tabKey === 'shorts') params.videoDuration = 'short';
+    if (opts && opts.order) params.order = opts.order;
+    if (opts && opts.maxResults) params.maxResults = opts.maxResults;
     return ytFetch('search', params, transport).then(function(data){
       var items = (data.items || []).filter(function(it){ return it.id && it.id.videoId; });
       if (!items.length) throw new Error('No results for "' + q + '"');
@@ -1592,7 +1618,7 @@
     var transport = resolveTransport();
     var task = transport
       ? (state.preview === 'home'
-          ? fetchHomeVideos(transport, currentHomeCategory().apiId)
+          ? fetchHomeVideos(transport, currentHomeCategory())
           : fetchSearchVideos(transport, state.query, state.searchTab))
       : Promise.resolve(null);
 
@@ -2011,6 +2037,21 @@
   });
   document.getElementById('searchGoBtn').addEventListener('click', function(){ refreshContent(); });
 
+  // Switches the whole console into search mode with the given query —
+  // shared by the simulated YouTube screen's own top search box (below)
+  // and anywhere else that should behave like "the visitor just searched
+  // for this." Mirrors the change into the rail's own "Search query"
+  // field/panel and its Preview segmented control too, so both stay in
+  // sync no matter which one was actually used.
+  function switchToSearchWithQuery(q){
+    state.query = q;
+    state.preview = 'search';
+    searchInputEl.value = q;
+    document.getElementById('searchQueryPanel').classList.remove('is-hidden');
+    syncSegmented('previewSeg', 'search');
+    refreshContent();
+  }
+
   // ---------- rail: segmented controls ----------
   function wireSegmented(id, onChange){
     var el = document.getElementById(id);
@@ -2129,6 +2170,36 @@
     refreshContent();
   });
 
+  // The simulated YouTube screen's own top search box (#ytTop is rebuilt on
+  // every render(), so its input can't hold a directly-attached listener —
+  // these are delegated on the static topEl container instead, same
+  // pattern as the category chips above). Typing updates state.query
+  // without forcing a full render (which would rebuild the input out from
+  // under the visitor's cursor mid-keystroke); Enter, the search button, or
+  // the mobile search icon all commit it via switchToSearchWithQuery().
+  topEl.addEventListener('input', function(e){
+    if (!e.target.classList.contains('yt-top__search-input')) return;
+    state.query = e.target.value;
+    searchInputEl.value = state.query;
+  });
+  topEl.addEventListener('keydown', function(e){
+    if (e.target.classList.contains('yt-top__search-input') && e.key === 'Enter'){
+      e.preventDefault();
+      switchToSearchWithQuery(e.target.value);
+    }
+  });
+  topEl.addEventListener('click', function(e){
+    if (e.target.closest('.yt-top__search-btn')){
+      var inputEl = topEl.querySelector('.yt-top__search-input');
+      switchToSearchWithQuery(inputEl ? inputEl.value : state.query);
+    } else if (e.target.closest('.yt-top__search-icon-btn')){
+      // Mobile has no persistent search box (see renderTop()) — tapping the
+      // icon commits whatever query is already set, same as the real app
+      // opening its search screen pre-filled with the last query.
+      switchToSearchWithQuery(state.query);
+    }
+  });
+
   function avatarInnerHtml(src, initials, color){
     if (src) return '<img src="' + src + '" alt="">';
     return '<span style="background:' + color + ';width:100%;height:100%;display:flex;align-items:center;justify-content:center;">' + escapeHtml(initials) + '</span>';
@@ -2170,13 +2241,20 @@
       return;
     }
 
-    var searchBoxHtml = state.preview === 'search'
-      ? '<div class="yt-top__search-box">' + escapeHtml(state.query || '') + '</div>'
-      : '<div class="yt-top__search-box" data-empty="true">Search</div>';
+    // A real <input>, not a decorative div — typing here (or pressing
+    // Enter, or clicking the magnifying-glass button) drives a genuine
+    // search the same way the rail's own "Search query" field does, via
+    // switchToSearchWithQuery() below. It's rebuilt on every render() like
+    // the rest of #ytTop, so its listeners are wired once via delegation
+    // on the static topEl container (see below) rather than re-attached
+    // here each time — re-attaching directly to this input would also
+    // require re-focusing it after every keystroke-triggered rebuild.
+    var searchBoxHtml =
+      '<input type="text" class="yt-top__search-box yt-top__search-input" maxlength="60" placeholder="Search" aria-label="Search" value="' + escapeHtml(state.query || '') + '">';
     topEl.innerHTML = leftHtml +
       '<div class="yt-top__search">' +
         searchBoxHtml +
-        '<div class="yt-top__search-btn">' + ICON.search + '</div>' +
+        '<button type="button" class="yt-top__search-btn" aria-label="Search">' + ICON.search + '</button>' +
         '<div class="yt-top__mic">' + ICON.mic + '</div>' +
       '</div>' +
       '<div class="yt-top__right"><div class="yt-avatar">' + myAvatar + '</div></div>';
