@@ -740,10 +740,6 @@
   .device__screen[data-device="mobile"] .yt-row__desc{display:none;}
 
 </style>
-</head>
-<body>
-<title>ThumbLab</title>
-
 
 <div class="lab" id="lab">
   <header class="lab__header">
@@ -822,9 +818,9 @@
       <section class="panel">
         <h2 class="panel__label">Narrow by Search</h2>
         <div class="variant__row">
-          <input id="narrowSearchInput" class="field" type="text" maxlength="60" placeholder="Filter what's shown, then press Enter">
+          <input id="narrowSearchInput" class="field" type="text" maxlength="60" placeholder="Enter your search term">
         </div>
-        <p class="rail__hint rail__hint--tight" id="narrowSearchHint">Narrows whatever's currently on screen — home page or search results — by title or channel. Doesn't fetch anything new.</p>
+        <p class="rail__hint rail__hint--tight" id="narrowSearchHint">Press Enter to search YouTube for this — switches Preview to Search results, same as the search box at the top of the screen above.</p>
       </section>
       <p class="rail__status" id="statusLine" aria-live="polite"></p>
 
@@ -1433,13 +1429,6 @@
     displayGrouping: 'together', // 'together' | 'apart'
     category: 'all',
     searchTab: 'all',
-    // "Narrow by Search" (round 23): a purely client-side filter over
-    // whatever's currently rendered (the home feed or search results) —
-    // matched by title/channel, case-insensitive substring. Deliberately
-    // separate from `query`, which drives an actual YouTube fetch; this
-    // never triggers a new request, it just hides non-matching cards from
-    // the already-loaded set. See narrowedCombined() below.
-    narrowQuery: '',
     liveStatus: 'idle',   // idle | loading | ok | error
     liveError: '',
     myVariants: [
@@ -1487,7 +1476,6 @@
       query: state.query,
       category: state.category,
       searchTab: state.searchTab,
-      narrowQuery: state.narrowQuery,
       useLiveVideo: state.useLiveVideo,
       onlyMine: state.onlyMine,
       displayPosition: state.displayPosition,
@@ -1507,7 +1495,7 @@
         var light = {
           v: payload.v, device: payload.device, preview: payload.preview,
           uiTheme: payload.uiTheme, ytTheme: payload.ytTheme, query: payload.query,
-          category: payload.category, searchTab: payload.searchTab, narrowQuery: payload.narrowQuery,
+          category: payload.category, searchTab: payload.searchTab,
           useLiveVideo: payload.useLiveVideo,
           onlyMine: payload.onlyMine,
           displayPosition: payload.displayPosition, displayGrouping: payload.displayGrouping,
@@ -1539,7 +1527,6 @@
     if (typeof saved.query === 'string') state.query = saved.query;
     if (typeof saved.category === 'string') state.category = saved.category;
     if (typeof saved.searchTab === 'string') state.searchTab = saved.searchTab;
-    if (typeof saved.narrowQuery === 'string') state.narrowQuery = saved.narrowQuery;
     if (typeof saved.useLiveVideo === 'boolean') state.useLiveVideo = saved.useLiveVideo;
     if (typeof saved.onlyMine === 'boolean') state.onlyMine = saved.onlyMine;
     if (saved.displayPosition === 'first' || saved.displayPosition === 'random') state.displayPosition = saved.displayPosition;
@@ -2055,30 +2042,34 @@
   });
   document.getElementById('searchGoBtn').addEventListener('click', function(){ refreshContent(); });
 
-  // "Narrow by Search" (round 23) — unlike the field above, this never
-  // fetches: it only re-renders with narrowedCombined()'s client-side
-  // filter applied, so it takes effect purely on Enter (per the request —
-  // no live-as-you-type filtering) and works the same in either Preview
-  // mode.
+  // "Narrow by Search" (round 23, repurposed round 24) — a second,
+  // always-visible search box in the rail. Originally a client-side-only
+  // filter over whatever was already on screen; changed after user
+  // feedback that typing a term here and getting only 1-of-51 loaded
+  // Home-page cards (rather than actual matching videos) read as broken,
+  // not as "narrowing." It now performs a real search on Enter, exactly
+  // like the simulated YouTube screen's own top search box: it hands off
+  // to switchToSearchWithQuery(), below, which fetches.
   var narrowSearchInputEl = document.getElementById('narrowSearchInput');
-  narrowSearchInputEl.value = state.narrowQuery;
+  narrowSearchInputEl.value = state.query;
   narrowSearchInputEl.addEventListener('keydown', function(e){
     if (e.key !== 'Enter') return;
     e.preventDefault();
-    state.narrowQuery = e.target.value;
-    render();
+    switchToSearchWithQuery(e.target.value);
   });
 
   // Switches the whole console into search mode with the given query —
-  // shared by the simulated YouTube screen's own top search box (below)
-  // and anywhere else that should behave like "the visitor just searched
-  // for this." Mirrors the change into the rail's own "Search query"
-  // field/panel and its Preview segmented control too, so both stay in
+  // shared by the simulated YouTube screen's own top search box, the
+  // rail's "Narrow by Search" box, and anywhere else that should behave
+  // like "the visitor just searched for this." Mirrors the change into
+  // the rail's own "Search query" field/panel, the "Narrow by Search"
+  // box, and the Preview segmented control too, so all of them stay in
   // sync no matter which one was actually used.
   function switchToSearchWithQuery(q){
     state.query = q;
     state.preview = 'search';
     searchInputEl.value = q;
+    narrowSearchInputEl.value = q;
     document.getElementById('searchQueryPanel').classList.remove('is-hidden');
     syncSegmented('previewSeg', 'search');
     refreshContent();
@@ -2163,7 +2154,6 @@
   var searchMetaEl = document.getElementById('ytSearchMeta');
   var contentEl = document.getElementById('ytContent');
   var statusEl = document.getElementById('statusLine');
-  var narrowSearchHintEl = document.getElementById('narrowSearchHint');
 
   // Reveals the minimal scrollbar thumb (see the CSS above) for ~900ms
   // after a scroll, in addition to the pure-CSS :hover reveal — so a
@@ -2355,16 +2345,6 @@
     }
   }
 
-  function renderNarrowHint(totalCount, visibleCount){
-    var q = state.narrowQuery.trim();
-    if (!q){
-      narrowSearchHintEl.textContent = 'Narrows whatever’s currently on screen — home page or search results — by title or channel. Doesn’t fetch anything new.';
-      narrowSearchHintEl.removeAttribute('data-tone');
-      return;
-    }
-    narrowSearchHintEl.textContent = 'Showing ' + visibleCount + ' of ' + totalCount + ' matching “' + q + '”.';
-    narrowSearchHintEl.setAttribute('data-tone', visibleCount ? 'ok' : 'error');
-  }
 
   function emptyStateHtml(){
     if (state.onlyMine){
@@ -2377,27 +2357,6 @@
       return '<div class="yt-empty">Generated placeholders don’t include ' + kind + '. Real ' + kind + ' need the live proxy configured (see PROXY_URL).</div>';
     }
     return '<div class="yt-empty">Nothing to show yet — try a different category above.</div>';
-  }
-
-  // "Narrow by Search" (round 23) — a client-side filter over whatever's
-  // already loaded into state.combined (the home feed or search results),
-  // matched against title/channel. Deliberately never fetches anything —
-  // it just hides non-matching cards from the set already on screen, so it
-  // works instantly and identically in either Preview mode. cardData() is
-  // already cheap (plain object lookups, no DOM/network work), so filtering
-  // by calling it here and then again per-card during the actual render is
-  // fine at this app's scale (a few dozen cards at most).
-  function narrowedCombined(){
-    var q = (state.narrowQuery || '').trim().toLowerCase();
-    if (!q) return state.combined;
-    return state.combined.filter(function(item){
-      var d = cardData(item);
-      return (d.title && d.title.toLowerCase().indexOf(q) !== -1) ||
-        (d.channel && d.channel.toLowerCase().indexOf(q) !== -1);
-    });
-  }
-  function narrowEmptyStateHtml(){
-    return '<div class="yt-empty">Nothing shown matches “' + escapeHtml(state.narrowQuery.trim()) + '”. Clear the Narrow by Search box (and press Enter) to see everything again.</div>';
   }
 
   function thumbInnerHtml(item){
@@ -2547,14 +2506,12 @@
     renderTop();
     renderChips();
     renderStatus();
-    var visible = narrowedCombined();
-    renderNarrowHint(state.combined.length, visible.length);
-    if (!visible.length){
-      contentEl.innerHTML = state.combined.length ? narrowEmptyStateHtml() : emptyStateHtml();
+    if (!state.combined.length){
+      contentEl.innerHTML = emptyStateHtml();
     } else if (state.preview === 'search'){
-      renderList(visible);
+      renderList(state.combined);
     } else {
-      renderGrid(visible);
+      renderGrid(state.combined);
     }
     scheduleSave();
   }
